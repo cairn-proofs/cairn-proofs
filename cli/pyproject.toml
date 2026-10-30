@@ -1,0 +1,30 @@
+[project]
+name = "cairn-cli"
+version = "0.1.0"
+description = "Cairn CLI — push, pull, verify, and query Artifact Store bundles"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "boto3>=1.34.0",
+  "botocore[crt]",
+  # Read-only operator TUI (`cairn tui`). CLI-only dependency — Textual must
+  # not leak into Lambda bundles (those consume libs/ directly, not cli/).
+  "textual>=0.70.0",
+  # Workspace siblings — the CLI is a first-class consumer of the shared libs.
+  # We do NOT shell out to oras for manifest construction; instead we build
+  # the OCI manifest + Config_Blob in-process via cairn-oci and shell out only
+  # for the registry-side push/pull. Verification routes through cairn-signing.
+  "cairn-oci",
+  "cairn-validation",
+  "cairn-signing",
+  "cairn-metadata",
+]
+
+[project.scripts]
+cairn = "cairn_cli.main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["cairn_cli"]

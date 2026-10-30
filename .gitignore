@@ -1,0 +1,58 @@
+# macOS metadata
+.DS_Store
+
+# Claude Code per-user local settings (permission allowlist, output style, etc.)
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+
+# Node / CDK
+node_modules/
+cdk.out/
+# Shared cloud-assembly dir for jest synth (see cdk/test/*.test.ts OUTDIR)
+cdk.out.test/
+cdk/**/*.js
+!cdk/jest.config.js
+cdk/**/*.d.ts
+# cdk.context.json can capture real account IDs from `Vpc.fromLookup` etc.
+# Revisit when constructs that need reproducible context lookups land (task 4.x).
+cdk.context.json
+
+# Secrets / credentials (belt-and-suspenders; AGENTS.md forbids `git add -A`)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+.aws/
+credentials
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+.hypothesis
+
+# IDE
+.idea/
+.vscode/
+*.swp
+lambda-bundles/
+*.bak
+
+# don't publish these to public repo
+private/

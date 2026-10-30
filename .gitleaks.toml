@@ -1,0 +1,32 @@
+# Gitleaks configuration — secret-detection gate for Cairn Proofs.
+#
+# Auto-loaded by gitleaks when run from the repo root (the pre-commit hook and
+# `mise run gitleaks` both do). `useDefault = true` keeps gitleaks' full set of
+# embedded rules and layers the allowlist below on top — we add no custom rules,
+# only suppress known, audited false positives.
+#
+# Every entry below is a non-secret that matched a default rule. Each was
+# verified by hand (see comments). Add to this list ONLY after confirming a
+# match is genuinely not a credential; never allowlist to silence a real leak.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Audited non-secrets that trip the default rules"
+
+paths = [
+  # Our own Semgrep secret-detection RULE definitions — this file exists to
+  # describe what secrets look like, so it is full of example/placeholder
+  # patterns (BEGIN PRIVATE KEY, slack webhook templates, etc.) by design.
+  '''tools/semgrep/rules/secrets\.yaml''',
+]
+
+regexes = [
+  # cdk/lib/naming.ts — TOKEN_ALPHABET: a Crockford-style base-N alphabet used
+  # for short human-readable suffixes, not a credential.
+  '''23456789abcdefghjkmnpqrstuvwxyz''',
+  # lambda-layers/notation/build.sh — AWS_SIGNER_KEY_FINGERPRINT: a GPG *public*
+  # key fingerprint pinned for signature verification. Public by nature.
+  '''E84AF8A2A9B52F1F4435AE71A3B52DA65461CF90''',
+]

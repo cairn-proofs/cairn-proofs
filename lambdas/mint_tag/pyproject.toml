@@ -1,0 +1,24 @@
+[project]
+name = "cairn-lambda-mint-tag"
+version = "0.1.0"
+description = "mint-tag Lambda: post-archive canonical tag minting — deterministic {artifact-kind}--_ref--{digest} tag, ECR PutImage-with-tag on the existing digest"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "boto3>=1.34.0",
+  "cairn-metadata",
+  "cairn-oci",
+  "cairn-observability",
+  "aws-lambda-powertools[metrics]>=3.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["cairn_lambda_mint_tag"]
+
+[tool.uv.sources]
+cairn-metadata = { workspace = true }
+cairn-oci = { workspace = true }
+cairn-observability = { workspace = true }

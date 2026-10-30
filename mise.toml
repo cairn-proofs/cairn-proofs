@@ -1,0 +1,163 @@
+[tools]
+node = "24"
+python = "3.12"
+uv = "latest"
+aws = "latest"
+pre-commit = "latest"
+oras = "latest"
+"npm:@fission-ai/openspec" = "1.15.0"
+# Mermaid CLI — renders threat-model DFDs to PNG for embedding in Threat Composer
+# (dev-time, propose-flow only; off the deploy.sh path). Puppeteer fetches its
+# own Chromium on `mise install`. See docs/adr/0013-* and openspec/tools/tc_render.py.
+"npm:@mermaid-js/mermaid-cli" = "latest"
+github-cli = "latest"
+# Semgrep — SAST gate over the Python workspace + TypeScript CDK app, scanned
+# offline against vendored rule content under tools/semgrep/rules/ (see
+# tools/semgrep/README.md and add-sast-security-gates design D3 / threat M-1).
+# pipx backend: semgrep ships macOS-arm64 + manylinux-aarch64 wheels, so the
+# pin resolves on both this dev host and Linux/arm64 CI. Exact pin, not latest.
+"pipx:semgrep" = "1.166.0"
+# Gitleaks — secret-detection gate. Runs at commit time via the pre-commit hook
+# (staged diff only — fast) and over full git history in `mise run check` (CI /
+# belt-and-suspenders for anything that bypassed the hook with --no-verify).
+# Fully offline: a single static binary with embedded default rules, no network
+# at scan time. Known false positives are allowlisted in .gitleaks.toml. aqua
+# backend ships macOS-arm64 + Linux-arm64 release archives, so the pin resolves
+# on both this dev host and CI. Exact pin, not latest.
+gitleaks = "8.30.1"
+
+# Deployment environment: load the gitignored `.env` (template: .env.example)
+# once via mise so it is exported to every PATH-tool session. This is the
+# single resolution path shared by the TypeScript CDK app
+# (cdk/bin/artifact-store.ts) and the bash deploy/reset scripts — the operator
+# asserts CAIRN_ALPHA_ACCOUNT / CAIRN_ALPHA_REGION in one place. `.env` is
+# optional (absent on a fresh clone); downstream consumers fail fast with an
+# actionable message when a required var is unresolved.
+[env]
+_.file = ".env"
+
+# `mise run check` is the canonical pre-merge command — fans out the fast
+# gates in parallel. `cdk-synth` is intentionally NOT in check.depends; see
+# openspec/specs/toolchain/spec.md and mise-task-runner/design.md (D3).
+
+[tasks.lint]
+description = "Ruff lint (Python)"
+run = "uv run ruff check ."
+
+[tasks.fmt]
+description = "Ruff format (Python, writes)"
+run = "uv run ruff format ."
+
+[tasks.fmt-check]
+description = "Ruff format check (Python, read-only)"
+run = "uv run ruff format --check ."
+
+[tasks.test]
+description = "pytest (Python workspace)"
+run = "uv run pytest"
+
+[tasks.integ]
+description = "Integration smoke against a deployed cmh-alpha stack (parallel, fail-fast)"
+env = { CAIRN_INTEGRATION_ENV = "cmh-alpha" }
+# Parallel (-n auto): these tests are latency-bound (minutes of pipeline-completion
+# polling), so concurrency collapses wall-clock from sum-of-waits to ~the slowest
+# test. Safe because the pipeline is idempotent under concurrent content-addressed
+# pushes AND every test uses unique fixed-bytes content, so no two tests share a
+# digest / cleanup target (see tests/integration/test_dedup_and_drift.py "Parallel
+# execution"). For interactive pdb use `-n 0`.
+run = "uv run pytest -m integration -v -x -n auto"
+
+[tasks.spec-validate]
+description = "OpenSpec spec-corpus validation (non-strict; see ADR-0022)"
+# Validates the committed spec corpus. Non-strict by deliberate policy: openspec
+# 1.15.0 strict mode fails any WARNING, and the 500-char "requirement too long"
+# warning fires on pre-existing long requirements across the corpus with no
+# per-rule or threshold knob (validator hardcodes MAX_REQUIREMENT_TEXT_LENGTH).
+# The length rule is still ENFORCED on new/edited requirements where they are
+# authored: change-level `openspec validate <change> --strict` (propose/apply/
+# bugfix flows) stays strict, so a new overlong requirement fails at authoring
+# time, and each change splits the existing long requirements it touches. This
+# gate stays ERROR-level (structure, scenario format, ID refs) via non-strict +
+# the separate spec-ids task. See docs/adr/0022-openspec-strict-length-policy.md.
+run = "openspec validate --specs"
+
+[tasks.spec-ids]
+description = "Stable spec-identifier linter (presence/uniqueness/no-reuse/refs-resolve/no-positional)"
+# Dependency-free, read-only linter over the spec corpus + test `Covers:` markers
+# + backlog spec links. Default invocation keeps the committed-snapshot rules
+# (no-vanish / no-reuse vs the per-prefix high-water mark) on, so the gate is
+# strongest in git checkouts (CI + pre-commit). Exits non-zero on any violation
+# so `check` fails closed. See openspec/specs/toolchain/spec.md (TOOLS-013).
+run = "python3 openspec/tools/spec_ids.py"
+
+[tasks.semgrep]
+description = "Semgrep SAST (Python workspace + TypeScript CDK) — offline, vendored rules"
+# Scans against rule CONTENT vendored under tools/semgrep/rules/ (committed,
+# offline) — never the mutable `p/` registry at scan time (threat M-1). Runs
+# fully offline: --metrics off + SEMGREP_SEND_METRICS=off disable telemetry,
+# --disable-version-check suppresses the registry version ping, no account
+# login. --error makes any finding a non-zero exit so `check` fails closed.
+env = { SEMGREP_SEND_METRICS = "off" }
+run = "semgrep scan -v --error --metrics off --disable-version-check --config tools/semgrep/rules cli lambdas libs cdk"
+
+[tasks.gitleaks]
+description = "Gitleaks secret detection (full git history) — offline, embedded default rules"
+# Scans the whole commit history (`git` mode), not just the working tree: catches
+# a secret that was committed and later removed (the value lives on in history),
+# and is the `check` backstop for any commit that skipped the pre-commit hook with
+# --no-verify. git mode only sees tracked content, so the gitignored vendored trees
+# (node_modules, lambda-bundles, .venv) are skipped — a `dir .` scan would grind
+# through ~760 MB of those for minutes. Known false positives are suppressed in
+# .gitleaks.toml (auto-loaded). --redact keeps match values out of CI logs;
+# --no-banner trims noise; non-zero exit on any finding so `check` fails closed.
+run = "gitleaks git --no-banner --redact"
+
+[tasks.tm-gate]
+description = "Fail-closed threat-model archive gate for a change (usage: mise run tm-gate <change>)"
+run = "uv run python openspec/tools/tc.py gate"
+
+[tasks.tm-reconcile]
+description = "Reconcile a change's threat model (usage: mise run tm-reconcile <change> -- --shipped all)"
+run = "uv run python openspec/tools/tc.py reconcile"
+
+[tasks.tm-render]
+description = "Render a change's threat-model Mermaid DFD/architecture diagrams to embedded PNGs (usage: mise run tm-render <change>)"
+run = "uv run python openspec/tools/tc_render.py"
+
+[tasks.mmdc-setup]
+description = "One-time: provision the headless browser mmdc needs for tm-render (opt-in; not run in CI/deploy)"
+run = "./openspec/tools/provision-mmdc-browser.sh"
+
+[tasks.cdk-deploy]
+description = "Re/deploy the CDK app"
+run = "./cdk/scripts/deploy.sh"
+
+[tasks.cdk-install]
+description = "npm ci for CDK (cached on lockfile)"
+dir = "cdk"
+run = "npm ci"
+sources = ["package.json", "package-lock.json"]
+outputs = ["node_modules/.package-lock.json"]
+
+[tasks.cdk-typecheck]
+description = "TypeScript compile (CDK)"
+depends = ["cdk-install"]
+dir = "cdk"
+run = "npm run build"
+
+[tasks.cdk-test]
+description = "Jest (CDK)"
+depends = ["cdk-install"]
+dir = "cdk"
+run = "npm test"
+
+[tasks.cdk-synth]
+description = "CDK synth (on-demand; NOT part of check)"
+depends = ["cdk-install"]
+dir = "cdk"
+run = "npx cdk synth --quiet"
+
+[tasks.check]
+description = "Full pre-merge pipeline (Python + CDK + specs)"
+depends = ["lint", "fmt-check", "test", "spec-validate", "spec-ids", "cdk-typecheck", "cdk-test", "semgrep", "gitleaks"]
+run = "true"

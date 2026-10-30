@@ -1,0 +1,31 @@
+{
+  "assessment-results": {
+    "uuid": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+    "metadata": {
+      "title": "Integration AR",
+      "last-modified": "2026-01-01T00:00:00Z",
+      "version": "1.0",
+      "oscal-version": "1.2.1"
+    },
+    "import-ap": {"href": "https://example.com/ap.json"},
+    "results": [
+      {
+        "uuid": "00000000-0000-4000-8000-000000000001",
+        "title": "Integration result",
+        "description": "End-to-end pipeline integration smoke test result.",
+        "start": "2025-02-01T00:00:00Z",
+        "end": "2025-02-15T00:00:00Z",
+        "reviewed-controls": {
+          "control-selections": [
+            {
+              "include-controls": [
+                {"control-id": "ac-1"},
+                {"control-id": "ac-2"}
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

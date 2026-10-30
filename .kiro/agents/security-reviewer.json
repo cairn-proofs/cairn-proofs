@@ -1,0 +1,177 @@
+{
+  "$schema": "https://json.schemastore.org/kiro-agent.json",
+  "name": "security-reviewer",
+  "description": "Deep security review of infrastructure-as-code, IAM policies, Lambda configurations, and data-path code. Triggers on \"security review\", \"is this IAM policy safe?\", \"review my CDK/CloudFormation\", \"check my permissions\", \"audit this policy\", or any request to evaluate security posture of AWS resources.",
+  "prompt": "file://../agent-prompts/security-reviewer.md",
+  "tools": [
+    "code",
+    "glob",
+    "grep",
+    "read",
+    "shell"
+  ],
+  "allowedTools": [
+    "read",
+    "grep",
+    "glob",
+    "code"
+  ],
+  "toolsSettings": {
+    "read": {
+      "deniedPaths": [
+        "CLAUDE.md",
+        ".claude/**"
+      ]
+    },
+    "shell": {
+      "allowedCommands": [
+        "openspec .*",
+        "git diff.*",
+        "git log.*",
+        "git status.*",
+        "git show.*",
+        "grep .*",
+        "sed -n .*",
+        "cat .*",
+        "ls .*",
+        "echo .*",
+        "head .*",
+        "tail .*",
+        "wc .*",
+        "which .*",
+        "git --no-pager diff.*",
+        "git --no-pager log.*",
+        "git --no-pager status.*",
+        "git --no-pager show.*",
+        "git branch --show-current.*",
+        "git check-ignore.*"
+      ],
+      "deniedCommands": [
+        ".*mise run check.*",
+        ".*mise run semgrep.*",
+        ".*semgrep scan.*",
+        "uv run ruff.*",
+        "uv run pytest.*",
+        "git commit.*",
+        "git add.*",
+        "git push.*",
+        "git reset.*",
+        "git clean.*",
+        "rm -rf .*"
+      ],
+      "autoAllowReadonly": true,
+      "denyByDefault": true
+    }
+  },
+  "resources": [
+    "file://AGENTS.md",
+    "file://README.md"
+  ],
+  "permissions": {
+    "rules": [
+      {
+        "capability": "shell",
+        "match": [
+          "openspec *",
+          "git diff*",
+          "git log*",
+          "git status*",
+          "git show*",
+          "grep *",
+          "sed -n *",
+          "cat *",
+          "ls *",
+          "echo *",
+          "head *",
+          "tail *",
+          "wc *",
+          "which *",
+          "git --no-pager diff*",
+          "git --no-pager log*",
+          "git --no-pager status*",
+          "git --no-pager show*",
+          "git branch --show-current*",
+          "git check-ignore*"
+        ],
+        "effect": "allow"
+      },
+      {
+        "capability": "shell",
+        "match": [
+          "*mise run check*",
+          "*mise run semgrep*",
+          "*semgrep scan*",
+          "uv run ruff*",
+          "uv run pytest*",
+          "git commit*",
+          "git add*",
+          "git push*",
+          "git reset*",
+          "git clean*",
+          "rm -rf *"
+        ],
+        "effect": "deny"
+      },
+      {
+        "capability": "shell",
+        "match": [
+          "*"
+        ],
+        "exclude": [
+          "cat",
+          "cat *",
+          "echo",
+          "echo *",
+          "git --no-pager diff*",
+          "git --no-pager log*",
+          "git --no-pager show*",
+          "git --no-pager status*",
+          "git branch --show-current*",
+          "git check-ignore*",
+          "git diff*",
+          "git log*",
+          "git show*",
+          "git status*",
+          "grep",
+          "grep *",
+          "head",
+          "head *",
+          "ls",
+          "ls *",
+          "openspec",
+          "openspec *",
+          "sed -n",
+          "sed -n *",
+          "tail",
+          "tail *",
+          "wc",
+          "wc *",
+          "which",
+          "which *"
+        ],
+        "effect": "deny"
+      },
+      {
+        "capability": "fs_read",
+        "match": [
+          "CLAUDE.md",
+          ".claude/**"
+        ],
+        "effect": "deny"
+      },
+      {
+        "capability": "fs_read",
+        "effect": "allow"
+      },
+      {
+        "capability": "skill",
+        "effect": "allow"
+      }
+    ]
+  },
+  "kiroUpgrade": {
+    "revision": 2,
+    "fingerprint": "sha256:67bd75aee10a1986e52c23b76235ccd834eb4d51bfc16c6e03c6b2cf5884df9e",
+    "source": "sha256:2ac44f8e4be3e71eb79eafde73e16a65e93628f7815ccc05114aebd9f3d8389b"
+  }
+}

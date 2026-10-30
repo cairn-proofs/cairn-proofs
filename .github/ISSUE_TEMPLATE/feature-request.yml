@@ -1,0 +1,94 @@
+name: Feature request
+description: Propose a new capability or change, with the structure needed to triage it directly.
+title: "[Feature]: "
+# Native Issue Type (org-level Issue Types must be enabled). If a GitHub version
+# does not honor this key it is ignored harmlessly and the type is set at triage.
+type: Feature
+labels:
+  - "origin:community"
+  - "status:needs-triage"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for proposing a feature. This form asks for the same structure our
+        internal captures use, so it can be triaged directly.
+
+        **Not ready to provide acceptance criteria?** Please start in
+        [Discussions → Ideas](https://github.com/<owner>/<repo>/discussions/categories/ideas)
+        instead — that's the right place for an open-ended idea, and we'll help it
+        take shape before it becomes an issue.
+  - type: checkboxes
+    id: prior-search
+    attributes:
+      label: Prior search
+      options:
+        - label: I searched existing issues and discussions and this isn't a duplicate.
+          required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / context
+      description: What problem are you hitting, who hits it, and why does it matter? (2–3 sentences)
+      placeholder: Operators cannot ... which means ...
+    validations:
+      required: true
+  - type: textarea
+    id: user-story
+    attributes:
+      label: User story
+      description: 'Phrase the need as: "As a <role>, I want <capability> so that <benefit>."'
+      placeholder: As a compliance auditor, I want ... so that ...
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance criteria (Given / When / Then)
+      description: >-
+        Concrete, testable outcomes — the happy path plus at least one edge or error
+        case. If accepted, these become the spec scenarios, so be specific.
+      placeholder: |
+        1. Given <precondition>, when <action>, then <expected outcome>.
+        2. Given <edge/error precondition>, when <action>, then <expected handling>.
+    validations:
+      required: true
+  - type: dropdown
+    id: capability
+    attributes:
+      label: Capability area
+      description: Which part of the system does this touch? Pick "Unsure" if you're not certain.
+      options:
+        - artifact-ingestion
+        - signing
+        - worm-archive
+        - metadata-index
+        - processing-pipeline
+        - oscal-interop
+        - access-control
+        - retention-lifecycle
+        - runtime-slos
+        - encryption
+        - observability
+        - deployment-modes
+        - platform-constraints
+        - artifact-tui
+        - toolchain
+        - artifact-verifiability
+        - Unsure / not listed
+    validations:
+      required: true
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope (optional)
+      description: Anything explicitly NOT being asked for, to keep the scope honest.
+    validations:
+      required: false
+  - type: textarea
+    id: open-questions
+    attributes:
+      label: Open questions (optional)
+      description: Anything genuinely undecided that triage should weigh in on.
+    validations:
+      required: false

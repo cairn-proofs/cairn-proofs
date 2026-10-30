@@ -1,0 +1,212 @@
+{
+  "$schema": "https://json.schemastore.org/kiro-agent.json",
+  "name": "implementer",
+  "description": "Implements one file-disjoint wave of an OpenSpec change's Task Dependency Graph \u2014 writes the production code for its assigned tasks plus the tests that cover it, and runs those scoped tests to green. Dispatched by the orchestrator as a subagent stage (role=implementer); never commits, never runs the full mise run check, never spawns subagents. Triggers on \"implement this wave\", \"write the code for these tasks\", \"build out tasks N-M\".",
+  "prompt": "file://../agent-prompts/implementer.md",
+  "tools": [
+    "code",
+    "glob",
+    "grep",
+    "read",
+    "shell",
+    "write"
+  ],
+  "allowedTools": [
+    "read",
+    "grep",
+    "glob",
+    "code",
+    "shell"
+  ],
+  "toolsSettings": {
+    "read": {
+      "deniedPaths": [
+        "CLAUDE.md",
+        ".claude/**"
+      ]
+    },
+    "write": {
+      "allowedPaths": [
+        "cdk/**",
+        "lambdas/**",
+        "libs/**",
+        "cli/**",
+        "tests/**",
+        "**/__tests__/**",
+        "docs/**",
+        "runbooks/**"
+      ],
+      "deniedPaths": [
+        "openspec/specs/**",
+        ".kiro/**"
+      ]
+    },
+    "shell": {
+      "allowedCommands": [
+        "uv run pytest.*",
+        "uv run ruff.*",
+        "uv run python.*",
+        "mise run cdk-typecheck.*",
+        "mise run cdk-test.*",
+        "mise run lint.*",
+        "mise run fmt.*",
+        "./cdk/scripts/build-lambdas.sh.*",
+        "openspec list.*",
+        "openspec status.*",
+        "openspec instructions.*",
+        "openspec validate.*",
+        "git diff.*",
+        "git log.*",
+        "git status.*",
+        "git show.*",
+        "grep .*",
+        "sed -n .*",
+        "cat .*",
+        "ls .*",
+        "echo .*",
+        "head .*",
+        "tail .*",
+        "wc .*",
+        "which .*",
+        "oras .*",
+        "git --no-pager diff.*",
+        "git --no-pager log.*",
+        "git --no-pager status.*",
+        "git --no-pager show.*",
+        "git branch --show-current.*",
+        "git check-ignore.*"
+      ],
+      "deniedCommands": [
+        "git commit.*",
+        "git add.*",
+        "git push.*",
+        "git reset.*",
+        "git rebase.*",
+        "git checkout.*",
+        "git restore.*",
+        "git clean.*",
+        ".*mise run check.*",
+        ".*mise run semgrep.*",
+        "uv run ruff.*--unsafe-fixes.*",
+        "rm -rf .*"
+      ],
+      "autoAllowReadonly": true,
+      "denyByDefault": false
+    }
+  },
+  "resources": [
+    "file://AGENTS.md",
+    "file://README.md",
+    "file://pyproject.toml"
+  ],
+  "permissions": {
+    "rules": [
+      {
+        "capability": "shell",
+        "match": [
+          "uv run pytest*",
+          "uv run ruff*",
+          "uv run python*",
+          "mise run cdk-typecheck*",
+          "mise run cdk-test*",
+          "mise run lint*",
+          "mise run fmt*",
+          "*/cdk/scripts/build-lambdas*sh*",
+          "openspec list*",
+          "openspec status*",
+          "openspec instructions*",
+          "openspec validate*",
+          "git diff*",
+          "git log*",
+          "git status*",
+          "git show*",
+          "grep *",
+          "sed -n *",
+          "cat *",
+          "ls *",
+          "echo *",
+          "head *",
+          "tail *",
+          "wc *",
+          "which *",
+          "oras *",
+          "git --no-pager diff*",
+          "git --no-pager log*",
+          "git --no-pager status*",
+          "git --no-pager show*",
+          "git branch --show-current*",
+          "git check-ignore*"
+        ],
+        "effect": "allow"
+      },
+      {
+        "capability": "shell",
+        "match": [
+          "git commit*",
+          "git add*",
+          "git push*",
+          "git reset*",
+          "git rebase*",
+          "git checkout*",
+          "git restore*",
+          "git clean*",
+          "*mise run check*",
+          "*mise run semgrep*",
+          "uv run ruff*--unsafe-fixes*",
+          "rm -rf *"
+        ],
+        "effect": "deny"
+      },
+      {
+        "capability": "fs_read",
+        "match": [
+          "CLAUDE.md",
+          ".claude/**"
+        ],
+        "effect": "deny"
+      },
+      {
+        "capability": "fs_write",
+        "match": [
+          "cdk/**",
+          "lambdas/**",
+          "libs/**",
+          "cli/**",
+          "tests/**",
+          "**/__tests__/**",
+          "docs/**",
+          "runbooks/**"
+        ],
+        "effect": "allow"
+      },
+      {
+        "capability": "fs_write",
+        "match": [
+          "openspec/specs/**",
+          ".kiro/**"
+        ],
+        "effect": "deny"
+      },
+      {
+        "capability": "fs_read",
+        "effect": "allow"
+      },
+      {
+        "capability": "shell",
+        "effect": "allow"
+      },
+      {
+        "capability": "skill",
+        "effect": "allow"
+      }
+    ],
+    "policies": [
+      "read-only-shell"
+    ]
+  },
+  "kiroUpgrade": {
+    "revision": 2,
+    "fingerprint": "sha256:df5cee8785116618d59483c7a30f678d766df0bd96ab2dd6848e88177ed7160a",
+    "source": "sha256:6923464f1515df5636c7e9b3ffaf8419b170ec26329aacf17bb41141c0deee7f"
+  }
+}

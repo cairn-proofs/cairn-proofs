@@ -1,0 +1,24 @@
+# Discussion category form for the "Q&A" category — questions are inherently
+# open-ended, so this is deliberately minimal. Nothing is required.
+#
+# NOTE: this template's binding to the "Q&A" category is configured in the repo's
+# Discussions settings; confirm the mapping after enabling Discussions.
+title: "[Question]: "
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ask away — there's nothing required here.
+  - type: textarea
+    id: question
+    attributes:
+      label: Your question
+    validations:
+      required: false
+  - type: textarea
+    id: tried
+    attributes:
+      label: What have you tried? (optional)
+    validations:
+      required: false

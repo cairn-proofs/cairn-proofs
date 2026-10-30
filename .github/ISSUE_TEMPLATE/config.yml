@@ -1,0 +1,21 @@
+# Controls the "New issue" chooser.
+#
+# Blank (unstructured) issues are disabled: every Issue must enter through a
+# structured form so it arrives triage-ready. People who are not ready to provide
+# that structure are routed to Discussions to *start* there — a maintainer
+# promotes a matured idea into a structured issue later.
+#
+# NOTE: substitute <owner>/<repo> below with the real path before the repo goes
+# public (contact_links require absolute URLs). The category slugs `ideas` and
+# `q-a` must match the repo's actual Discussions category slugs.
+blank_issues_enabled: false
+contact_links:
+  - name: 💡 Idea or open-ended feature discussion
+    url: https://github.com/<owner>/<repo>/discussions/categories/ideas
+    about: >-
+      Not ready to fill in a full feature request (problem, user story,
+      acceptance criteria)? Start an open-ended idea in Discussions. Maintainers
+      promote matured ideas into a structured feature-request issue.
+  - name: ❓ Question / help
+    url: https://github.com/<owner>/<repo>/discussions/categories/q-a
+    about: Ask a question or get help in Discussions Q&A.

@@ -1,0 +1,183 @@
+{
+  "$schema": "https://json.schemastore.org/kiro-agent.json",
+  "name": "spec-writer",
+  "description": "Authors substantial, settled documentation as a delegated subagent: runbooks, ADRs, design docs and narratives, plans, OpenSpec proposal/design/spec prose, threat-model write-ups, user stories. Dispatched by the orchestrator when a document's content is decided and needs to be written or substantially expanded \u2014 NOT for small inline edits, comment tweaks, or docs still being negotiated turn-by-turn with the user. Reads the project writing rules (writing-recommendations.md) before writing and works only within its scoped paths; cannot run the validation gate, so the main session validates afterward. For tightening or cleaning up a document that ALREADY exists, use the spec-simplifier skill instead.",
+  "prompt": "file://../agent-prompts/spec-writer.md",
+  "tools": [
+    "glob",
+    "grep",
+    "read",
+    "shell",
+    "write"
+  ],
+  "allowedTools": [
+    "read",
+    "grep",
+    "glob",
+    "shell"
+  ],
+  "toolsSettings": {
+    "read": {
+      "deniedPaths": [
+        "CLAUDE.md",
+        ".claude/**"
+      ]
+    },
+    "write": {
+      "allowedPaths": [
+        "openspec/specs/**",
+        "docs/**",
+        "runbooks/**",
+        "**/README.md",
+        "DEVELOPING.md",
+        "README.md",
+        "CHANGELOG.md"
+      ],
+      "deniedPaths": [
+        "CLAUDE.md",
+        ".claude/**"
+      ]
+    },
+    "shell": {
+      "allowedCommands": [
+        "openspec .*",
+        "git diff.*",
+        "git log.*",
+        "git status.*",
+        "git show.*",
+        "grep .*",
+        "sed -n .*",
+        "cat .*",
+        "ls .*",
+        "echo .*",
+        "head .*",
+        "tail .*",
+        "wc .*",
+        "which .*",
+        "git --no-pager diff.*",
+        "git --no-pager log.*",
+        "git --no-pager status.*",
+        "git --no-pager show.*",
+        "git branch --show-current.*",
+        "git check-ignore.*"
+      ],
+      "deniedCommands": [
+        "git commit.*",
+        "git add.*",
+        "git push.*",
+        "git reset.*",
+        "git rebase.*",
+        "git checkout.*",
+        "git restore.*",
+        "git clean.*",
+        ".*mise run check.*",
+        ".*mise run semgrep.*",
+        "uv run ruff.*--unsafe-fixes.*",
+        "rm -rf .*"
+      ],
+      "autoAllowReadonly": true,
+      "denyByDefault": false
+    }
+  },
+  "resources": [
+    "file://AGENTS.md",
+    "file://.kiro/skills/spec-simplifier/references/writing-recommendations.md"
+  ],
+  "permissions": {
+    "rules": [
+      {
+        "capability": "shell",
+        "match": [
+          "openspec *",
+          "git diff*",
+          "git log*",
+          "git status*",
+          "git show*",
+          "grep *",
+          "sed -n *",
+          "cat *",
+          "ls *",
+          "echo *",
+          "head *",
+          "tail *",
+          "wc *",
+          "which *",
+          "git --no-pager diff*",
+          "git --no-pager log*",
+          "git --no-pager status*",
+          "git --no-pager show*",
+          "git branch --show-current*",
+          "git check-ignore*"
+        ],
+        "effect": "allow"
+      },
+      {
+        "capability": "shell",
+        "match": [
+          "git commit*",
+          "git add*",
+          "git push*",
+          "git reset*",
+          "git rebase*",
+          "git checkout*",
+          "git restore*",
+          "git clean*",
+          "*mise run check*",
+          "*mise run semgrep*",
+          "uv run ruff*--unsafe-fixes*",
+          "rm -rf *"
+        ],
+        "effect": "deny"
+      },
+      {
+        "capability": "fs_read",
+        "match": [
+          "CLAUDE.md",
+          ".claude/**"
+        ],
+        "effect": "deny"
+      },
+      {
+        "capability": "fs_write",
+        "match": [
+          "openspec/specs/**",
+          "docs/**",
+          "runbooks/**",
+          "**/README.md",
+          "DEVELOPING.md",
+          "README.md",
+          "CHANGELOG.md"
+        ],
+        "effect": "allow"
+      },
+      {
+        "capability": "fs_write",
+        "match": [
+          "CLAUDE.md",
+          ".claude/**"
+        ],
+        "effect": "deny"
+      },
+      {
+        "capability": "fs_read",
+        "effect": "allow"
+      },
+      {
+        "capability": "shell",
+        "effect": "allow"
+      },
+      {
+        "capability": "skill",
+        "effect": "allow"
+      }
+    ],
+    "policies": [
+      "read-only-shell"
+    ]
+  },
+  "kiroUpgrade": {
+    "revision": 2,
+    "fingerprint": "sha256:6c3a1d8e59e7ba8c0be1aced6d133c79042992cccab8c3e46f37aa26ad633f76",
+    "source": "sha256:d155c37539b7da40bf810f894e5b3c721a99783feda8100576df85394b675a67"
+  }
+}

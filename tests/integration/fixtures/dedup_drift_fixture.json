@@ -1,0 +1,30 @@
+{
+  "assessment-results": {
+    "uuid": "d3d1f00d-0000-4000-8000-000000000001",
+    "metadata": {
+      "title": "Dedup/Drift Fixture",
+      "last-modified": "2026-01-01T00:00:00Z",
+      "version": "1.0",
+      "oscal-version": "1.2.1"
+    },
+    "import-ap": {"href": "https://example.com/ap.json"},
+    "results": [
+      {
+        "uuid": "d3d1f00d-0000-4000-8000-000000000002",
+        "title": "Dedup/drift result",
+        "description": "Fixed-bytes OSCAL fixture backing the exact content-digest drift pin; nothing in the push path injects wall-clock or randomness into this content.",
+        "start": "2025-02-01T00:00:00Z",
+        "end": "2025-02-15T00:00:00Z",
+        "reviewed-controls": {
+          "control-selections": [
+            {
+              "include-controls": [
+                {"control-id": "ac-1"}
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

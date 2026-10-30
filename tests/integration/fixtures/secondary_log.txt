@@ -1,0 +1,4 @@
+2026-05-26T12:00:00Z INFO integration-smoke-test secondary log layer
+2026-05-26T12:00:01Z INFO control=ac-1 status=satisfied evidence-line-1
+2026-05-26T12:00:02Z INFO control=ac-2 status=satisfied evidence-line-2
+2026-05-26T12:00:03Z INFO bundle assembled for end-to-end pipeline run
