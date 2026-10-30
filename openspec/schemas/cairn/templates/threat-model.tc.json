@@ -1,0 +1,53 @@
+{
+  "schema": 1,
+  "applicationInfo": {
+    "name": "<change-name> threat model",
+    "description": "Replace with this change's scope (1-2 paragraphs): what it adds/changes and the trust boundaries it touches. The threat-model subagent authors this per .claude/agents/threat-model.md; this file is the canonical Threat Composer v1 shape, not a fill-in form."
+  },
+  "architecture": {
+    "image": "",
+    "description": "Narrative of the components this change touches (Lambdas, IAM roles, KMS keys, ECR/S3/DynamoDB, EventBridge). The base64 `image` field is populated in-flow by `tc_render.py` (`mise run tm-render`) per ADR-0013 — it embeds the first non-DFD mermaid diagram from design.md as a PNG; rendering fails open to an empty field when `mmdc` is unavailable, with the mermaid source in design.md remaining canonical."
+  },
+  "dataflow": {
+    "image": "",
+    "description": "Narrative of the new/changed data flows, followed by the trust-boundary DFD. The SAME mermaid source is mirrored into design.md's `## Threats` section (keep the two identical). Untrusted regions are styled distinctly; every trust-boundary crossing should map to at least one threat below. Example shape:\n\n```mermaid\nflowchart LR\n    subgraph untrusted [Untrusted producer-asserted input]\n        P[producer field]\n    end\n    G[trust-boundary gate]\n    S[(trusted store)]\n    P -->|producer influenced| G\n    G -->|validated| S\n    style untrusted fill:#fdd,stroke:#c00\n    style G fill:#ffd,stroke:#aa0\n```"
+  },
+  "assumptions": [],
+  "mitigations": [
+    {
+      "id": "00000000-0000-4000-8000-000000000101",
+      "numericId": 1,
+      "content": "EXAMPLE — the trust-boundary gate re-validates the producer-asserted field before it is persisted. Set status to mitigationResolved ONLY if this control already exists in the codebase; leave it mitigationIdentified when this change's tasks will build it.",
+      "status": "mitigationIdentified",
+      "tags": ["<touched-component>"],
+      "metadata": [{ "key": "custom:mitigationType", "value": "Preventive" }]
+    }
+  ],
+  "threats": [
+    {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "numericId": 1,
+      "threatSource": "an external actor",
+      "prerequisites": "who can push producer-asserted content",
+      "threatAction": "supply a crafted field value",
+      "threatImpact": "the field is persisted or rendered without validation",
+      "impactedGoal": ["integrity"],
+      "impactedAssets": ["<asset>"],
+      "statement": "EXAMPLE — an external actor who can push producer-asserted content can supply a crafted field value, which leads to the field being persisted or rendered without validation, negatively impacting integrity of <asset>.",
+      "status": "threatIdentified",
+      "tags": ["<touched-component>"],
+      "metadata": [
+        { "key": "STRIDE", "value": ["T"] },
+        { "key": "Priority", "value": "Medium" },
+        { "key": "custom:residualRisk", "value": "Low" }
+      ]
+    }
+  ],
+  "assumptionLinks": [],
+  "mitigationLinks": [
+    {
+      "mitigationId": "00000000-0000-4000-8000-000000000101",
+      "linkedId": "00000000-0000-4000-8000-000000000001"
+    }
+  ]
+}

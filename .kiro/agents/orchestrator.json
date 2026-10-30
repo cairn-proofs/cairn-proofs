@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json.schemastore.org/kiro-agent.json",
+  "name": "orchestrator",
+  "description": "OpenSpec change orchestrator for Cairn Proofs. The main session for the opsx-* (explore / propose / apply / verify / archive) flows: it parses the Task Dependency Graph in a change's tasks.md, dispatches file-disjoint waves to the implementer via the subagent tool, and runs the single post-wave code-simplifier -> code-reviewer + security-reviewer + tester gate on the cumulative diff before commit. Spawns the code-reviewer, security-reviewer, tester, code-simplifier, threat-model, and spec-writer specialists without a confirmation prompt.",
+  "prompt": "file://../agent-prompts/orchestrator.md",
+  "tools": [
+    "*"
+  ],
+  "allowedTools": [
+    "read",
+    "grep",
+    "glob",
+    "introspect",
+    "shell",
+    "web_search",
+    "web_fetch",
+    "tangent",
+    "todo",
+    "knowledge",
+    "subagent"
+  ],
+  "toolsSettings": {
+    "read": {
+      "deniedPaths": [
+        "CLAUDE.md"
+      ]
+    },
+    "write": {
+      "allowedPaths": [
+        "./openspec/**",
+        "./scripts/**",
+        "./docs/**"
+      ],
+      "deniedPaths": [
+        "./.env",
+        ".claude/**",
+        "./CLAUDE.md"
+      ]
+    }
+  },
+  "shell": {
+    "allowedCommands": [
+      "openspec.*",
+      "uv run python openspec/tools/.*"
+    ]
+  },
+  "resources": [
+    "file://AGENTS.md",
+    "file://README.md",
+    "file://.kiro/skills/spec-simplifier/references/writing-recommendations.md"
+  ],
+  "welcomeMessage": "orchestrator ready.",
+  "useLegacyMcpJson": true,
+  "permissions": {
+    "rules": [
+      {
+        "capability": "fs_read",
+        "match": [
+          "CLAUDE.md"
+        ],
+        "effect": "deny"
+      },
+      {
+        "capability": "fs_write",
+        "match": [
+          "./openspec/**",
+          "./scripts/**",
+          "./docs/**"
+        ],
+        "effect": "allow"
+      },
+      {
+        "capability": "fs_write",
+        "match": [
+          "./.env",
+          ".claude/**",
+          "./CLAUDE.md"
+        ],
+        "effect": "deny"
+      },
+      {
+        "capability": "subagent",
+        "match": [
+          "code-reviewer",
+          "code-simplifier",
+          "implementer",
+          "security-reviewer",
+          "spec-writer",
+          "tester",
+          "threat-model"
+        ],
+        "effect": "allow"
+      },
+      {
+        "capability": "fs_read",
+        "effect": "allow"
+      },
+      {
+        "capability": "shell",
+        "effect": "allow"
+      },
+      {
+        "capability": "subagent",
+        "effect": "allow"
+      },
+      {
+        "capability": "web_fetch",
+        "effect": "allow"
+      },
+      {
+        "capability": "web_search",
+        "effect": "allow"
+      },
+      {
+        "capability": "skill",
+        "effect": "allow"
+      }
+    ]
+  },
+  "kiroUpgrade": {
+    "revision": 2,
+    "fingerprint": "sha256:87abb418668152f4949beceee1ba353734ac659b2f23b473c7441f588edb0cde",
+    "source": "sha256:81ceb50c04f53aa6daa89144284a93f9cc5a3a01a27ee6509e4aea3b99ad0fa2"
+  }
+}

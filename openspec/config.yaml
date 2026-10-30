@@ -1,0 +1,230 @@
+schema: cairn
+
+context: |
+  Cairn Proofs — a multi-account, tamper-evident storage system
+  for audit artifacts on AWS. Targets the union of NIST 800-53
+  (AU family) and ISO 27002 (5.x) controls; satisfies ALCOA+ properties.
+
+  Stack: AWS-only — Amazon ECR (OCI registry), AWS Signer with Notation
+  (signing), S3 with optional Object Lock Compliance (durable archive),
+  DynamoDB (metadata index), EventBridge-driven Lambda pipeline.
+
+  Implementation: TypeScript CDK (cdk/) + Python 3.12 (Lambdas, libs,
+  CLI). Language runtimes pinned via mise.toml (Node 24, Python 3.12);
+  Python deps managed by uv as a workspace; pre-commit wires ruff and
+  `openspec validate --specs --strict`.
+
+  Spec authoring model: openspec/specs/ describes the
+  CURRENT STATE of the system as built. Deferred/future work is never 
+  specified in openspec/specs/; it is captured in the backlog and enters 
+  the specs only when a backlog item graduates into an OpenSpec change 
+  and that change's delta archives. Backlog = work to be done; 
+  changes = work in progress; specs = current state. 
+
+  Commit format: Conventional Commits. 
+
+  Canonical vocabulary: openspec/GLOSSARY.md indexes every domain term to its
+  governing requirement. It is authoritative for the nominal concept of a term;
+  the specs remain authoritative for normative constraints. Consult it for term
+  meanings, and add any new Capitalized_Underscore domain term there in the same
+  change that introduces it.
+
+  See ./AGENTS.md for the broader project context applied to any agent
+  session in this repository, and README.md for the human-facing system
+  overview.
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+rules:
+  proposal:
+    - >-
+      List style: prefer NUMBERED lists (`1.`, `2.`) over bullets for any
+      enumerable prose — changes, capabilities, impacts, personas
+      served. Numbered items are referenceable by position ("What Changes item
+      3") in design, tasks, and review; bullets are not. Reserve bullets for a
+      genuinely unordered short aside.
+    - >-
+      Personas: every proposal MUST include a "Personas served" line naming at
+      least one specific persona from openspec/personas/*.md. Cite the 
+      goal/frustration, not a bare persona name: a name is back-fillable, 
+      a goal is the actual value check. This is the forcing function for 
+      "are we building the right thing" — if you can't name a goal, that is 
+      a signal, not a formality.
+    - >-
+      If no persona goal applies, the proposal MUST instead state "Personas
+      served: none" with a one-line reason. This is a VALID answer that flags
+      the change for review, not a blocker. It resolves to one of two cases,
+      both of which must be surfaced: (a) speculative work with no user — stop,
+      justify, or defer it; or (b) a real need whose persona is not yet modeled
+      — add the persona to openspec/personas/personas.md in this same change.
+      Do NOT invent a persona fit to pass the check; an honest "none" beats a
+      laundered name.
+    - >-
+      Issue graduation: if this change was seeded by a GitHub issue (an issue
+      whose user story / acceptance criteria this change formalizes), add a
+      "Captured-from: #<issue-number>" line near the top of the proposal so the
+      seed's provenance is recorded, and close that issue with a "Closes
+      #<issue-number>" line when the change is archived. This keeps the issue
+      backlog trending empty without a separate triage chore.
+    - >-
+      Always create GitHub compatible (github-slugger) anchor links or hrefs when 
+      referencing sections in the proposal or other docs within the project. Make
+      sure links are concealed by other formatting. Prefer references over duplication.
+  bugfix-analysis:
+    - >-
+      List style: prefer NUMBERED lists (`1.`, `2.`) over bullets for any
+      enumerable prose. In particular, number the Current / Expected / Unchanged
+      Behavior clauses — downstream artifacts (design Test Properties, tasks)
+      cite them as "clause #N", so a stable number per clause is the
+      referenceable handle. Keep the bolded `WHEN`/`THEN`/`SHALL`/`SHALL
+      CONTINUE TO` keywords inside each numbered clause unchanged.
+    - >-
+      Issue graduation: if this bugfix was seeded by a GitHub issue (an issue
+      whose defect / acceptance criteria this change formalizes), add a
+      "Captured-from: #<issue-number>" line near the top of bugfix.md so the
+      seed's provenance is recorded, and close that issue with a "Closes
+      #<issue-number>" line when the change is archived. This keeps the issue
+      backlog trending empty without a separate triage chore.
+    - >-
+      Always create GitHub compatible (github-slugger) anchor links or hrefs when 
+      referencing sections in the proposal or other docs within the project. Make
+      sure links are concealed by other formatting. Prefer references over duplication.    
+  design:
+    - >-
+      List style: prefer NUMBERED lists (`1.`, `2.`) over bullets for any
+      enumerable prose — Decisions, Risks / Trade-offs, Migration steps, Open
+      Questions, Blast Radius entries, Test Properties. Numbered items are
+      referenceable ("Decision 2", "Risk 3") in tasks, threat-model
+      mitigations, and review; bullets are not. Reserve bullets for a genuinely
+      unordered short aside.
+    - >-
+      ADR boundary: if this change makes an architecturally-significant decision
+      that changes NO Requirement (a deferral, a technology evaluation, a
+      cross-cutting standard), record that rationale as an ADR under docs/adr/
+      and CITE it here — do not write it up inline in design.md. Rationale for a
+      decision that DOES change a Requirement belongs in this design.md, not an
+      ADR. WHY in the ADR, WHAT in the spec, cross-linked, never duplicated. See
+      docs/adr/0001-adopt-architecture-decision-records.md.
+    - >-
+      Diagrams: design.md MUST carry at least one mermaid diagram, and SHOULD
+      carry both kinds when the change warrants them — (1) an ARCHITECTURE /
+      component diagram (```mermaid flowchart`/`graph`, using `subgraph` blocks
+      for layers, accounts, or trust zones) whenever the change adds or re-wires
+      components, data stores, queues, or IAM boundaries; and (2) a SEQUENCE
+      diagram (```mermaid sequenceDiagram`) whenever it adds or alters a runtime
+      flow — e.g. EventBridge → Lambda → store hops, signing, or cross-account
+      calls. Match the house style of the archived
+      derived-ref-id-discriminator change (mermaid fenced blocks, descriptive
+      node labels, a one-line prose contrast with today's flow under a sequence
+      diagram). Any change that adds no component and alters no runtime flow —
+      including a surgical bugfix to existing logic, a pure-library/rename/config
+      change — MAY instead write "Diagrams: N/A — <one-line reason>"; like the
+      Personas "none" answer this is a VALID answer that flags the change for
+      review, not a blocker, so use it honestly rather than drawing a trivial
+      one-box diagram to satisfy the letter of the rule. (Bugfix-schema note: the
+      bugfix design has no dedicated diagram section — when a fix DOES reshape a
+      flow, put the sequence diagram inline under "Root Cause Analysis" or
+      "Proposed Fix"; most surgical fixes take the N/A path.)
+    - >-
+      Always create GitHub compatible (github-slugger) anchor links or hrefs when 
+      referencing sections in the proposal or other docs within the project. Make
+      sure links are concealed by other formatting. Prefer references over duplication.
+  specs:
+    - >-
+      Historical narration, temporal tags or statements of what changed relative 
+      to previous requirements are prohibited in specs. You MUST NOT introduce
+      any such language. You MUST replace or delete any such language that 
+      you find in a spec without changing intent. If that seems unsafe,
+      flag it for user review, but do not ignore it. A spec is not a change log,
+      it defines intended, steady state.
+    - >-
+      List style: prefer NUMBERED lists (`1.`, `2.`) over bullets for any
+      enumerable prose INSIDE requirement text (enumerated conditions,
+      constraints, allowed values) so each item is referenceable. EXCEPTION —
+      spec scenario `WHEN`/`THEN`/`AND` lines MUST stay bullets (`- **WHEN**`);
+      that bullet format under `#### Scenario:` is required and load-bearing for
+      validation — never renumber scenario lines.
+    - >-
+      Always create GitHub compatible (github-slugger) anchor links or hrefs when 
+      referencing sections in the proposal or other docs within the project - especially 
+      proposal, design, and threat model. Prefer references over duplication. Never duplicate 
+      normative content from one spec to another. In spec deltas, links should be 
+      written such that they resolve post-archive/merge.
+    - >-
+      Glossary upkeep: if this delta introduces a new Capitalized_Underscore
+      domain term (e.g. Artifact_Bundle, WORM_Receipt), add it to
+      openspec/GLOSSARY.md in this same change as an authoritative one-line
+      nominal concept plus a pointer to the governing requirement (or external
+      standard). Specs stay authoritative for normative constraints; the glossary
+      is authoritative only for the nominal concept. See
+      docs/adr/0003-glossary-authority-model.md.
+    - >-
+      Define domain terms on first use: when a requirement is the governing
+      requirement for a Capitalized_Underscore domain term (the term whose
+      openspec/GLOSSARY.md entry carries a `Governed by` pointer to it), that
+      requirement SHALL state the term's one-sentence nominal definition inline
+      at first use — bold the term (e.g. **Artifact_Bundle** is the
+      content-bearing Artifact …) — not merely use or constrain it, so the spec
+      reads self-contained without a glossary round-trip (the model that
+      artifact-ingestion [INGEST-001] already follows). The glossary one-liner
+      stays the authoritative nominal statement (ADR-0003) and the aggregated
+      cross-spec index; the inline definition restates that same concept and the
+      two MUST agree. Complements the Glossary upkeep rule above: upkeep keeps
+      the index current, this keeps the spec self-defining. See
+      docs/adr/0003-glossary-authority-model.md.
+    - >-
+      Spec ID Presence and format — every requirement/scenario heading has a well-formed
+      identifier, and a scenario sub-sequence is rendered in canonical 2-digit-minimum
+      form (`PREFIX-NNN.MM`): it must equal `f"{int(sub):02d}"`, so both an
+      under-padded (`PREFIX-NNN.M`) and an over-padded / surplus-leading-zero
+      (`PREFIX-NNN.0M`, `PREFIX-NNN.00M`) rendering is a format violation that names
+      the offending heading (a legitimately wider sub like `.100` carries no surplus
+      zero and is canonical).
+    - >-      
+      Spec ID Uniqueness — no canonical identity is assigned to two headings; two
+      renderings of the same identity (`.01` vs `.001`) are a duplicate, not two ids.
+    - >-      
+      No vanish — an identifier present in the previous committed corpus
+      (`git show HEAD:...`) that is absent from the current corpus MUST have a
+      `## Relocated and Retired IDs` row; identifiers are never silently dropped.
+    - >-
+      No reuse — a newly introduced identifier's sequence number is strictly
+      greater than the committed per-prefix high-water mark (retired numbers are
+      reserved forever, so an allocate-forward sequence can never collide).
+    - >- 
+      References resolve — every `[PREFIX-NNN]` / `[PREFIX-NNN.MM]` citation in
+      `openspec/specs/` and every `Covers: <ID>` marker in `tests/` resolves: a
+      bracketed `[ID]` citation to a live identifier or a ledger entry, and a
+      GitHub-anchor link of the form `openspec/specs/<cap>/spec.md#<anchor>` to a
+      heading anchor computed from a live heading in that capability. (Deferred
+      work now lives in GitHub Issues; the optional backlog-reference scan
+      tolerates the absent legacy inbox dir.)
+    - >- 
+      Prefix matches capability — each requirement/scenario identifier's PREFIX
+      equals its capability's assigned prefix (the immutable capability-dir -> prefix
+      map below): a `SIGN-NNN` heading may live only in `signing/spec.md`.
+    - >- 
+      Scenario binds to its requirement — a scenario's `PREFIX-NNN` matches the
+      `PREFIX-NNN` of its enclosing (most-recent-preceding) requirement heading.      
+  threatmodel:
+    - >-
+      Data-flow diagram: the threat model MUST include a Data Flow Diagram (DFD)
+      with EXPLICIT trust boundaries — a ```mermaid flowchart` whose `subgraph`
+      regions are the trust zones (untrusted producer-asserted input, the
+      trusted processing pipeline, per-account / cross-account boundaries), with
+      the untrusted region(s) styled distinctly (see the archived
+      derived-ref-id-discriminator `## Threats` section for the house style:
+      `style untrusted fill:#fdd,stroke:#c00`). The DFD is the spatial companion
+      to the STRIDE table — every trust-boundary crossing it shows SHOULD map to
+      at least one identified threat, and a crossing with no threat is itself a
+      finding. The `threat-model` subagent authors this DFD once and places it in
+      BOTH surfaces it owns: the mermaid source in the `.tc.json`
+      `dataflow.description` (so the artifact is self-contained for Threat
+      Composer round-trip) AND the same rendered block in the `## Threats`
+      section it appends to design.md (so it renders on GitHub for human review).
+      Keep the two copies identical; the rendered design.md block is the one
+      humans read.
+    - >-
+      Always create GitHub compatible (github-slugger) anchor links or hrefs when 
+      referencing sections in the proposal or other docs within the project. Make
+      sure links are concealed by other formatting. Prefer references over duplication.  

@@ -1,0 +1,372 @@
+name: bugfix
+version: 1
+description: Surgical bugfix workflow (Kiro-style) - bugfix-analysis → design → tasks. Captures defect/expected/unchanged behavior explicitly so the fix is reliable and regression-guarded.
+artifacts:
+  - id: bugfix-analysis
+    generates: bugfix.md
+    description: Bug definition - defect, expected, and unchanged behavior in WHEN/THEN form
+    template: bugfix.md
+    requires: []
+    instruction: >
+      Create `bugfix.md` - the contract for what's broken, what "fixed" means,
+      and what MUST keep working.
+
+
+      The bugfix is the foundation of this workflow; there is no separate
+      proposal artifact. The bug itself is the motivation.
+
+
+      Sections (ALL required, in this order):
+
+
+      - **Title**: One-line summary. Plain English, not a Jira ID.
+
+      - **Severity & Impact**: One paragraph. Who's affected, how often, what
+      they see, blast radius. Reference real signals where possible (alarm
+      name, log query, ticket, customer report). Be specific.
+
+      - **Reproduction**: Concrete steps a fresh contributor can follow to
+      observe the defect. Include environment (stage, region), inputs,
+      observed output. If the bug is only reproducible under load or specific
+      data, say so and provide the minimal trigger.
+
+      - **Current Behavior (Defect)**: One or more clauses, each strictly in
+      the form:
+        > **WHEN** &lt;condition&gt; **THEN** the system &lt;incorrect behavior&gt;
+
+        Note: no SHALL here - this is descriptive of the bug, not normative.
+
+      - **Expected Behavior (Correct)**: One or more clauses, each strictly
+      in the form:
+        > **WHEN** &lt;condition&gt; **THEN** the system **SHALL** &lt;correct behavior&gt;
+
+        This is the testable definition of "fixed". Every clause must be
+        verifiable by an automated test.
+
+      - **Unchanged Behavior (Regression Prevention)**: One or more clauses,
+      each strictly in the form:
+        > **WHEN** &lt;condition&gt; **THEN** the system **SHALL CONTINUE TO** &lt;existing behavior&gt;
+
+        Enumerate the behaviors at risk from the proposed fix - adjacent
+        code paths, shared state, callers of the modified function. This is
+        the seed list for the regression test suite in `tasks.md`.
+
+      - **Spec Impact**: One of:
+        - "None - the spec already mandates the Expected Behavior; this is
+          purely an implementation defect."
+        - "Spec amendment needed - &lt;capability&gt; spec is ambiguous about
+          &lt;condition&gt;; the fix will be accompanied by a delta spec
+          updating Requirement &lt;name&gt;." (Then create the delta spec
+          alongside `design.md`.)
+
+
+      Format rules:
+
+      - Use the exact bolded keywords **WHEN**, **THEN**, **SHALL**, **SHALL
+      CONTINUE TO**. Linters and downstream review depend on this.
+
+      - One clause per NUMBERED item (`1.`, `2.`), not a bullet — downstream
+      artifacts cite them as "clause #N", so the number is the referenceable
+      handle. No compound clauses joined with "and" - split them so each is
+      independently testable.
+
+      - Keep clauses concrete enough that a property-based test can be
+      written against them.
+
+
+      The bugfix.md is the contract. Everything downstream (root cause,
+      fix design, tests) must trace back to a clause here.
+  - id: design
+    generates: design.md
+    description: Root-cause analysis, fix approach, and test property categories
+    template: design.md
+    requires:
+      - bugfix-analysis
+    instruction: >
+      Create `design.md` - the engineering reasoning behind the fix.
+
+
+      Read `bugfix.md` first. Every section here references its clauses.
+
+
+      Sections (ALL required, in this order):
+
+
+      - **Root Cause Analysis**: Walk the reader from the symptom in
+      `bugfix.md`'s Current Behavior clauses to the underlying defect in
+      the code. Cite file paths and line numbers (e.g.,
+      `libs/oscal/dispatch.py:142`). Name the precise mechanism (off-by-one,
+      missing await, wrong KMS key id, race on shared module-level state,
+      etc.). If the root cause spans multiple files, list each.
+
+      - **Why It Wasn't Caught**: One paragraph. Which test was supposed to
+      cover this and why didn't it? (Missing case, mocked dependency that
+      diverged from prod, test only ran serially, etc.) This shapes the
+      regression tests in the next section.
+
+      - **Proposed Fix**: The change. Be specific - which functions,
+      which lines, what behavior changes. Include the minimal code
+      sketch where helpful. Call out the trade-off: why this fix vs.
+      alternatives considered. Surgical &gt; comprehensive - if you find
+      yourself proposing a refactor, ask whether that should be a
+      follow-up change instead.
+
+      - **Blast Radius**: Numbered list (`1.`, `2.`) of files/modules touched,
+      and a one-line "who else calls this" note for each modified function.
+      Number them so a regression-guard task can cite "blast-radius #2". This
+      list bounds the regression-test scope in `tasks.md`.
+
+      - **Test Properties**: Three subsections - one per category. Each
+      subsection lists the properties that will be encoded as automated
+      tests in `tasks.md`. Frame each as a property-based assertion
+      (input shape → invariant), not a single example. The project uses
+      Hypothesis for Python property tests; reference existing
+      `tests/unit/cairn_*/` patterns.
+
+        - **(a) Bug Reproduction (RED)**: Properties that FAIL on
+          `main` (the unfixed code) and PASS on the fix branch. These
+          encode the Expected Behavior clauses from `bugfix.md`. Each
+          property must trace to a specific Expected Behavior clause.
+
+        - **(b) Fix Verification (GREEN)**: Properties that PASS on
+          the fix branch. Often the same set as (a) - explicitly note
+          if they diverge (e.g., fix-only invariants that don't make
+          sense to assert against unfixed code).
+
+        - **(c) Regression Guard**: Properties that PASS on `main` AND
+          MUST CONTINUE TO PASS on the fix branch. These encode the
+          Unchanged Behavior clauses from `bugfix.md` plus any behavior
+          identified in the Blast Radius that the fix could plausibly
+          disturb. Err on the side of more guards here - they're cheap
+          to write and catch the class of regression this workflow
+          exists to prevent.
+
+      - **Spec Alignment**: If `bugfix.md` flagged a spec amendment,
+      describe the delta here and create the delta spec file at
+      `openspec/changes/&lt;name&gt;/specs/&lt;capability&gt;/spec.md` following
+      the project's MODIFIED Requirements conventions (full updated
+      content, exact header match, NO phase annotations — specs describe
+      current state, so spec deltas MUST NOT introduce `*Phase:*` lines).
+      If no spec
+      change, write "Spec already mandates the Expected Behavior; no
+      delta needed."
+
+      - **Rollback**: One paragraph. How to revert if the fix introduces
+      a worse bug. For most fixes this is "revert the commit, no state
+      to unwind." Call out explicitly if a migration, schema change, or
+      operational step makes rollback non-trivial.
+
+
+      Keep design.md focused on THIS bug. Tangentially related issues
+      become follow-up changes, not scope creep here.
+  - id: tasks
+    generates: tasks.md
+    description: Implementation checklist with wave DAG, structured around RED→GREEN→Regression test flow
+    template: tasks.md
+    requires:
+      - bugfix-analysis
+      - design
+    instruction: |
+      Create `tasks.md` - the implementation checklist.
+
+      **IMPORTANT: Follow the template exactly.** The apply phase parses
+      checkbox format to track progress. Tasks not using `- [ ]` won't be
+      tracked.
+
+      Bugfix-workflow task structure (recommended; adapt for scope):
+
+      - **Group 1 - Bug Reproduction (RED)**: Write the failing tests
+        FIRST, on a clean tree, and confirm they fail against current
+        code. One task per property from design.md "Test Properties
+        (a) Bug Reproduction". These tests are the contract; if they
+        don't fail now, the bug isn't characterized correctly and
+        design.md needs revision.
+
+      - **Group 2 - Fix**: Implement the change from design.md
+        "Proposed Fix". Touch only the files in "Blast Radius". When
+        this group completes, the Group 1 tests must turn GREEN.
+
+      - **Group 3 - Regression Guard**: Write the tests from design.md
+        "Test Properties (c) Regression Guard". These should pass both
+        before and after the fix; they exist to catch future regressions
+        and document what the fix MUST NOT break.
+
+      - **Group 4 - Spec Sync** (only if `bugfix.md`'s "Spec Impact"
+        flagged an amendment): Create or update the delta spec at
+        `openspec/changes/<name>/specs/<capability>/spec.md` per the
+        design's "Spec Alignment" section. Run `openspec validate
+        --specs --strict`.
+
+      - **Group 5 - Verification**: Run `mise run check` (full
+        pre-merge gate). Confirm Group 1 RED tests are now GREEN and
+        Group 3 regression guards still pass.
+
+      Wave packaging rules (inherited from the project's apply flow):
+
+      - **Tests SHIP IN THE SAME WAVE as the code they cover** - except
+        the RED reproduction tests, which intentionally ship in an
+        earlier wave than the fix so we can prove they fail first. This
+        is the one workflow where impl and tests legitimately split.
+
+      - **Target the finest *safe* wave — that is how you parallelize.**
+        The orchestrator's only concurrency lever is spawning more
+        subagents, one per wave; there is NO per-task subagent. To run
+        independent work in parallel, emit it as separate sibling waves
+        sharing the same `dependsOn` (a cohort the apply loop runs
+        concurrently), not as several tasks bundled into one wave. A wave
+        should be the smallest set of tasks that is file-disjoint from
+        every other wave and carries a self-contained test surface. The
+        `##` group headings (Reproduction / Fix / Regression / ...) are
+        organizational, not wave boundaries — decide wave membership by
+        file ownership + shared test surface. The RED→fix ordering is
+        still a hard `dependsOn` edge regardless of granularity. Don't
+        over-fragment: keep tasks in one wave when they share a file or
+        test, or form a cohesive multi-file unit; each wave costs one
+        implementer spawn. (For most bugfixes the whole change is still
+        2-3 waves.)
+
+      - No two waves may edit the same file (would create merge
+        contention between concurrent subagents).
+
+      - There is NO per-wave agent review or simplify. A wave's only
+        in-loop gate is its own tests (run by the implementer via Bash);
+        for the RED wave that gate is "the reproduction tests fail against
+        unfixed code". `code-simplifier`, `code-reviewer`,
+        `security-reviewer`, and `tester` all run ONCE, after every wave
+        completes, on the cumulative diff. Size waves for clean file
+        ownership, not for per-wave review isolation. For most bugfixes the
+        whole change fits in 2-3 waves.
+
+      After generating tasks, create the Task Dependency Graph as JSON.
+      The graph is a **DAG**, not a sequence: each wave declares its
+      prerequisite waves via `dependsOn`. The apply phase runs all
+      waves whose prerequisites are satisfied **concurrently** in
+      separate subagents.
+
+      Example for a typical bugfix:
+
+      ```
+      ## 1. Bug Reproduction (RED)
+
+      - [ ] 1.1 Add failing property test for <Expected Behavior clause 1> in tests/unit/cairn_<lib>/test_<thing>.py
+      - [ ] 1.2 Confirm test fails against main (record observed failure mode)
+
+      ## 2. Fix
+
+      - [ ] 2.1 Modify <file:line> to <change> per design.md "Proposed Fix"
+      - [ ] 2.2 Confirm Group 1 tests now pass
+
+      ## 3. Regression Guard
+
+      - [ ] 3.1 Add property test for <Unchanged Behavior clause 1>
+      - [ ] 3.2 Add property test for <Unchanged Behavior clause 2>
+      - [ ] 3.3 Add property test for <blast-radius caller from design.md>
+
+      ## 4. Verification
+
+      - [ ] 4.1 Run `mise run check` and confirm green
+      - [ ] 4.2 Run the smoke suite if the fix touches Lambda code or CDK
+      ```
+
+      ## Task Dependency Graph
+      ```json
+      {
+        "waves": [
+          { "id": 0, "dependsOn": [],  "tasks": ["1.1", "1.2"] },
+          { "id": 1, "dependsOn": [0], "tasks": ["2.1", "2.2"] },
+          { "id": 2, "dependsOn": [1], "tasks": ["3.1", "3.2", "3.3"] },
+          { "id": 3, "dependsOn": [2], "tasks": ["4.1", "4.2"] }
+        ]
+      }
+      ```
+
+      Wave 0 (RED) must complete before wave 1 (fix) so the failing-test
+      contract is recorded first. Wave 2 (regression) and wave 3
+      (verification) can be folded together for small fixes.
+
+      Each task should be verifiable - you know when it's done.
+apply:
+  requires:
+    - tasks
+  tracks: tasks.md
+  instruction: |
+    Read context files (bugfix.md, design.md, tasks.md, any spec deltas).
+
+    The main session is the **orchestrator** - it parses the Task
+    Dependency Graph from `tasks.md`, dispatches IMPLEMENTATION to wave
+    subagents, and runs the SINGLE simplify/review/test gate itself, once,
+    after all waves complete. There is NO per-wave agent review. The
+    orchestrator MUST NOT execute wave implementation tasks directly; every
+    implementation task is performed inside a wave subagent.
+
+    WHY review is orchestrator-driven (do not "fix" this back): a subagent
+    cannot spawn another subagent - the harness withholds subagent spawning
+    from any non-root context to bound recursion. So a wave subagent CANNOT
+    invoke `code-simplifier`/`code-reviewer`/`security-reviewer`/`tester`
+    (those are themselves subagents); if instructed to, it silently degrades
+    to a self-review, which is NOT the bar. Independent specialist review is
+    mandatory and only the orchestrator can spawn it (including in parallel),
+    which is why it is consolidated into one aggregate gate at the end.
+
+    This artifact specifies WHAT the apply workflow must do; the concrete
+    spawn / parallelism / re-dispatch PRIMITIVES are platform-specific.
+    Follow AGENTS.md's "Code-change workflow", which is authoritative for
+    how to dispatch waves, run the aggregate gate in parallel, and
+    re-dispatch for fixes.
+
+    Orchestration semantics:
+
+    1. Parse the wave DAG from `tasks.md` - a DAG keyed on `dependsOn`, NOT a
+       sequence. A wave becomes eligible the moment every wave it depends on
+       has completed; all eligible waves run CONCURRENTLY, each in its own
+       subagent. Waves sharing a `dependsOn` set form a parallel cohort; an
+       empty/absent `dependsOn` is a root wave. Do not impose an artificial
+       barrier between cohorts - dispatch a wave as soon as its own
+       prerequisites are satisfied. The RED→fix `dependsOn` edge (reproduction
+       tests ship and are proven to fail in an earlier wave than the fix) is a
+       hard prerequisite and holds regardless of granularity.
+
+    2. Dispatch each wave to exactly ONE implementer subagent, giving it: (a)
+       the wave's task list with full descriptions; (b) `bugfix.md`,
+       `design.md`, and any spec deltas; (c) the implementer contract below.
+
+       Per-wave IMPLEMENTER subagent contract:
+       - Implement the wave's tasks. Touch only files the tasks identify.
+       - **RED-wave special case (wave that includes Bug Reproduction
+         tasks)**: After writing the failing tests, run them and record
+         the observed failure mode (assertion message, stack trace
+         snippet) in the wave summary. If the tests pass against unfixed
+         code, STOP and surface to the user - the bug is mischaracterized
+         and `design.md` needs revision before the fix wave proceeds.
+       - Otherwise verify the wave's tests pass (running tests is not a
+         subagent spawn, so the implementer does this itself). Keep the code
+         clean as you write it. Do NOT attempt to invoke review/simplify
+         subagents - you cannot (see WHY above). Report back the files you
+         touched when done.
+
+    3. The orchestrator does NOT review per wave. As waves complete it marks
+       their tasks `- [x]` in `tasks.md` with a one-line summary (the wave's
+       own tests passing in step 2 — for the RED wave, confirmed failing
+       first — is the only in-loop gate) and dispatches any waves that have
+       just become eligible. No `code-simplifier`/`code-reviewer`/
+       `security-reviewer`/`tester` spawns happen in this loop.
+
+    After ALL waves complete, the orchestrator runs the SINGLE aggregate
+    quality gate on the CUMULATIVE diff, in order:
+    1. `code-simplifier` — the one simplify pass for the whole change,
+       positioned here so it catches duplication BETWEEN waves that a
+       per-wave pass cannot see; it edits and re-confirms tests.
+    2. `code-reviewer` + `security-reviewer` + `tester` run IN PARALLEL on
+       the simplified cumulative diff. Reviewers MUST report no
+       Critical/High; `tester` fills coverage/edge-case gaps beyond the
+       RED + regression tests the per-wave implementers wrote.
+    3. `mise run check` (full pre-merge gate). Confirm the RED reproduction
+       tests are now GREEN and the regression guards still pass.
+    To fix findings, RE-DISPATCH the affected work to a fresh subagent with
+    the findings as feedback (subagent sessions do not persist across the
+    gate; use your platform's re-dispatch / loop primitive per your operating
+    manual) — or fix a pure cross-wave seam issue directly — then re-run the
+    gate until clean, and commit.
+
+    Pause and surface to the user if you hit blockers, ambiguity, or
+    a finding that requires re-opening `bugfix.md` or `design.md`.

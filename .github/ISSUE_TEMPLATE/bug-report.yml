@@ -1,0 +1,78 @@
+name: Bug report
+description: Report something that isn't working as expected.
+title: "[Bug]: "
+type: Bug
+labels:
+  - "origin:community"
+  - "status:needs-triage"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Please give us enough to reproduce it. For an
+        open-ended question, use
+        [Discussions → Q&A](https://github.com/<owner>/<repo>/discussions/categories/q-a)
+        instead.
+  - type: checkboxes
+    id: prior-search
+    attributes:
+      label: Prior search
+      options:
+        - label: I searched existing issues and this isn't a duplicate.
+          required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you observe, and what did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version / commit
+      description: Which release, tag, or commit SHA were you on?
+    validations:
+      required: true
+  - type: dropdown
+    id: capability
+    attributes:
+      label: Affected area (optional)
+      options:
+        - artifact-ingestion
+        - signing
+        - worm-archive
+        - metadata-index
+        - processing-pipeline
+        - oscal-interop
+        - access-control
+        - retention-lifecycle
+        - runtime-slos
+        - encryption
+        - observability
+        - deployment-modes
+        - platform-constraints
+        - artifact-tui
+        - toolchain
+        - artifact-verifiability
+        - Unsure / not listed
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs / output (optional)
+      description: Paste any relevant log output. This is automatically formatted, no backticks needed.
+      render: shell
+    validations:
+      required: false

@@ -1,0 +1,89 @@
+[project]
+name = "cairn-proofs"
+version = "0.1.0"
+description = "Cairn Proofs — uv workspace root and shared dev tooling"
+requires-python = ">=3.12,<3.13"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["cli", "lambdas/*", "libs/*"]
+
+[dependency-groups]
+dev = [
+  "ruff>=0.7.0",
+  "pytest>=8.0.0",
+  "pytest-xdist>=3.6.0",
+  "boto3>=1.34.0",
+  "boto3-stubs[s3,ecr,dynamodb,events,sqs,iam,kms,signer,sns,ssm,cloudwatch,lambda]>=1.34.0",
+  "hypothesis>=6.0.0",
+  "moto>=5.0.0",
+  # Workspace members — listed here so `uv sync` installs them editable into
+  # the root .venv. New libs/ packages should be added here as they land.
+  "cairn-cli",
+  "cairn-observability",
+  "cairn-oci",
+  "cairn-oscal",
+  "cairn-validation",
+  "cairn-metadata",
+  "cairn-signing",
+  "cairn-lambda-validate-bundle",
+  "cairn-lambda-sign-bundle",
+  "cairn-lambda-archive-to-s3",
+  "cairn-lambda-update-metadata",
+  "cairn-lambda-mint-tag",
+]
+
+[tool.uv.sources]
+cairn-cli = { workspace = true }
+cairn-observability = { workspace = true }
+cairn-oci = { workspace = true }
+cairn-oscal = { workspace = true }
+cairn-validation = { workspace = true }
+cairn-metadata = { workspace = true }
+cairn-signing = { workspace = true }
+cairn-lambda-validate-bundle = { workspace = true }
+cairn-lambda-sign-bundle = { workspace = true }
+cairn-lambda-archive-to-s3 = { workspace = true }
+cairn-lambda-update-metadata = { workspace = true }
+cairn-lambda-mint-tag = { workspace = true }
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+# "S" is flake8-bandit — Bandit-equivalent Python security linting, obtained
+# through Ruff so it stays the single Python linter (see add-sast-security-gates
+# design D1 and the toolchain "Ruff as Python Linter and Formatter" requirement).
+select = ["E", "F", "I", "W", "B", "S", "UP", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+# Test code legitimately trips several flake8-bandit rules that are sound on
+# production code: S101 (pytest's idiomatic `assert`), S105/S106 (fixture
+# passwords/tokens are dummy literals, not real secrets), and S603/S607
+# (tests shell out to dev CLIs — oras, the interpreter — with fixed argv and
+# partial paths). Scoped to test paths ONLY so production code stays covered.
+"tests/**" = ["S101", "S105", "S106", "S603", "S607"]
+# openspec/tools/ are trusted local dev scripts (threat-model gate/render)
+# that shell out to known CLIs (openspec, mmdc) with fixed argv / partial PATH
+# lookups — not workspace product source and not untrusted input. Scoped to
+# the tooling path; product code under cli/, lambdas/, libs/ stays covered.
+"openspec/tools/**" = ["S603", "S607"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Process-parallel by default via pytest-xdist (per openspec/specs/toolchain/
+# spec.md "Tests Safe Under Parallel Execution"). Workers = available CPU
+# count. Override for interactive debugging: `uv run pytest -n 0 ...`.
+addopts = "-n auto"
+markers = [
+  "integration: end-to-end tests that exercise a real deployment; skipped unless CAIRN_INTEGRATION_ENV is set",
+]

@@ -1,0 +1,28 @@
+[project]
+name = "cairn-lambda-validate-bundle"
+version = "0.1.0"
+description = "validate-bundle Lambda: validates Artifact_Bundles on ECR PUSH events and emits artifact.validated / artifact.validation-failed"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "boto3>=1.34.0",
+  "cairn-oci",
+  "cairn-validation",
+  "cairn-oscal",
+  "cairn-observability",
+  "cairn-metadata",
+  "aws-lambda-powertools[metrics]>=3.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["cairn_lambda_validate_bundle"]
+
+[tool.uv.sources]
+cairn-oci = { workspace = true }
+cairn-validation = { workspace = true }
+cairn-oscal = { workspace = true }
+cairn-observability = { workspace = true }
+cairn-metadata = { workspace = true }

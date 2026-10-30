@@ -1,0 +1,9 @@
+{
+  "assessment-results": {
+    "uuid": "not-a-uuid",
+    "metadata": {
+      "title": "Malformed AR"
+    },
+    "results": "this-should-be-an-array-of-objects"
+  }
+}

@@ -1,0 +1,29 @@
+# ADOT (AWS Distro for OpenTelemetry) collector config for the Cairn pipeline
+# Lambdas. Bundled into each Lambda asset at /var/task/collector.yaml by
+# cdk/scripts/build-lambdas.sh and pointed at via the
+# OPENTELEMETRY_COLLECTOR_CONFIG_URI env var (see lambda-functions.ts baseEnv).
+#
+# Minimal traces-only topology: the in-process ADOT collector receives OTLP
+# spans from the application's own OpenTelemetry SDK (manual instrumentation;
+# see libs/observability/tracing.py) and exports them to AWS X-Ray. No central
+# collector exists in the Customer_Hosted single-account deployment (emitting
+# OTLP to a central collector was considered and rejected); the bundled awsxray
+# exporter is the lowest-friction path.
+#
+# HTTP-only receiver: the app's OTLPSpanExporter targets http://localhost:4318
+# (tracing.py). The gRPC receiver (4317) is intentionally omitted — it would be
+# unused loopback surface.
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: localhost:4318
+
+exporters:
+  awsxray:
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [awsxray]

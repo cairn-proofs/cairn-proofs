@@ -1,0 +1,50 @@
+# Discussion category form for the "Ideas" category — the low-bar incubator for
+# open-ended ideas before they're ready to be a structured feature-request issue.
+#
+# Everything here is OPTIONAL by design: Discussions are where things START, so
+# the prompts guide without gating. (GitHub does not reliably enforce
+# `required: true` on Discussion forms the way it does on Issues — verify in the
+# repo's Discussions settings; either way these stay optional intentionally.)
+#
+# NOTE: this template's binding to the "Ideas" category is configured in the
+# repo's Discussions settings; confirm the mapping after enabling Discussions.
+title: "[Idea]: "
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Share a rough idea — **nothing here is required.** The prompts just help us
+        understand it. When an idea firms up, a maintainer may convert it into a
+        structured feature request.
+  - type: textarea
+    id: idea
+    attributes:
+      label: What's the idea?
+      description: What would you like, and what problem would it solve?
+    validations:
+      required: false
+  - type: dropdown
+    id: area
+    attributes:
+      label: Rough area (optional)
+      options:
+        - artifact-ingestion
+        - signing
+        - worm-archive
+        - metadata-index
+        - processing-pipeline
+        - oscal-interop
+        - access-control
+        - retention-lifecycle
+        - runtime-slos
+        - encryption
+        - observability
+        - deployment-modes
+        - platform-constraints
+        - artifact-tui
+        - toolchain
+        - artifact-verifiability
+        - Unsure / not listed
+    validations:
+      required: false

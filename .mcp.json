@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "mcp-server-for-oscal": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["mcp-server-for-oscal@latest"],
+      "env": {}
+    }
+  }
+}

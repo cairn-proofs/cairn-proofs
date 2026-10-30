@@ -1,0 +1,40 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.7.4
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: gitleaks
+        name: gitleaks (secret detection, staged diff)
+        # Scan only the staged diff (`git --staged`) so commits stay fast; the
+        # full-tree scan runs in `mise run check`. Uses the mise-pinned gitleaks
+        # binary (mise.toml [tools]) rather than the upstream hook's own download,
+        # keeping the toolchain single-sourced. --redact keeps any match value out
+        # of hook output. Non-zero exit blocks the commit.
+        entry: gitleaks git --staged --no-banner --redact
+        language: system
+        pass_filenames: false
+      - id: openspec-validate-specs
+        name: openspec validate --specs
+        # Non-strict by deliberate policy (ADR-0022): openspec 1.15.0 strict mode
+        # fails any WARNING, and the 500-char "requirement too long" warning fires
+        # on pre-existing long requirements corpus-wide with no knob to demote it.
+        # The length rule stays enforced where new specs are authored via
+        # change-level `openspec validate <change> --strict`. This hook keeps the
+        # ERROR-level structure/format checks. See docs/adr/0022-*.
+        entry: openspec validate --specs
+        language: system
+        pass_filenames: false
+        files: ^openspec/specs/.*\.md$
+      - id: spec-ids
+        name: stable spec-identifier linter
+        entry: python3 openspec/tools/spec_ids.py
+        language: system
+        pass_filenames: false
+        # The linter scans the whole corpus + test `Covers:` markers on every
+        # run, so trigger on either surface.
+        files: ^(openspec/specs/.*\.md|tests/.*)$

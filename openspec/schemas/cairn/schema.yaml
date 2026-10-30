@@ -1,0 +1,481 @@
+name: cairn
+version: 1
+description: Extends default OpenSpec workflow with a threat model - proposal → specs → design → threat model → tasks
+artifacts:
+  - id: proposal
+    generates: proposal.md
+    description: Initial proposal document outlining the change
+    template: proposal.md
+    instruction: >
+      Create the proposal document that establishes WHY this change is needed.
+
+
+      Sections:
+
+      - **Why**: 1-2 sentences on the problem or opportunity. What problem does
+      this solve? Why now?
+
+      - **What Changes**: Numbered list (`1.`, `2.`) of changes — numbered so
+      each is referenceable downstream. Be specific about new capabilities,
+      modifications, or removals. Mark breaking changes with **BREAKING**.
+
+      - **Capabilities**: Identify which specs will be created or modified:
+        - **New Capabilities**: List capabilities being introduced. Each becomes a new `specs/<name>/spec.md`. Use kebab-case names (e.g., `user-auth`, `data-export`).
+        - **Modified Capabilities**: List existing capabilities whose REQUIREMENTS are changing. Only include if spec-level behavior changes (not just implementation details). Each needs a delta spec file. Check `openspec/specs/` for existing spec names. Leave empty if no requirement changes.
+      - **Impact**: Affected code, APIs, dependencies, or systems.
+
+
+      IMPORTANT: The Capabilities section is critical. It creates the contract
+      between
+
+      proposal and specs phases. Research existing specs before filling this in.
+
+      Each capability listed here will need a corresponding spec file.
+
+
+      Keep it concise (1-2 pages). Focus on the "why" not the "how" -
+
+      implementation details belong in design.md.
+
+
+      This is the foundation - specs, design, and tasks all build on this.
+    requires: []
+  - id: specs
+    generates: specs/**/*.md
+    description: Detailed specifications for the change
+    template: spec.md
+    instruction: >
+      Create specification files that define WHAT the system should do.
+
+
+      Create one spec file per capability listed in the proposal's Capabilities
+      section.
+
+      - New capabilities: use the exact kebab-case name from the proposal
+      (specs/<capability>/spec.md).
+
+      - Modified capabilities: use the existing spec folder name from
+      openspec/specs/<capability>/ when creating the delta spec at
+      specs/<capability>/spec.md.
+
+
+      Delta operations (use ## headers):
+
+      - **ADDED Requirements**: New capabilities
+
+      - **MODIFIED Requirements**: Changed behavior - MUST include full updated
+      content
+
+      - **REMOVED Requirements**: Deprecated features - MUST include **Reason**
+      and **Migration**
+
+      - **RENAMED Requirements**: Name changes only - use FROM:/TO: format
+
+
+      Format requirements:
+
+      - Each requirement: `### Requirement: <name>` followed by description
+
+      - Use SHALL/MUST for normative requirements (avoid should/may)
+
+      - Each scenario: `#### Scenario: <name>` with WHEN/THEN format
+
+      - **CRITICAL**: Scenarios MUST use exactly 4 hashtags (`####`). Using 3
+      hashtags or bullets will fail silently.
+
+      - Every requirement MUST have at least one scenario.
+
+
+      MODIFIED requirements workflow:
+
+      1. Locate the existing requirement in openspec/specs/<capability>/spec.md
+
+      2. Copy the ENTIRE requirement block (from `### Requirement:` through all
+      scenarios)
+
+      3. Paste under `## MODIFIED Requirements` and edit to reflect new behavior
+
+      4. Ensure header text matches exactly (whitespace-insensitive)
+
+
+      Common pitfall: Using MODIFIED with partial content loses detail at
+      archive time.
+
+      If adding new concerns without changing existing behavior, use ADDED
+      instead.
+
+
+      Example:
+
+      ```
+
+      ## ADDED Requirements
+
+
+      ### Requirement: User can export data
+
+      The system SHALL allow users to export their data in CSV format.
+
+
+      #### Scenario: Successful export
+
+      - **WHEN** user clicks "Export" button
+
+      - **THEN** system downloads a CSV file with all user data
+
+
+      ## REMOVED Requirements
+
+
+      ### Requirement: Legacy export
+
+      **Reason**: Replaced by new export system
+
+      **Migration**: Use new export endpoint at /api/v2/export
+
+      ```
+
+
+      Specs should be testable - each scenario is a potential test case.
+    requires:
+      - proposal
+  - id: design
+    generates: design.md
+    description: Technical design document with implementation details
+    template: design.md
+    instruction: >
+      Create the design document that explains HOW to implement the change.
+
+
+      When to include design.md (create only if any apply):
+
+      - Cross-cutting change (multiple services/modules) or new architectural
+      pattern
+
+      - New external dependency or significant data model changes
+
+      - Security, performance, or migration complexity
+
+      - Ambiguity that benefits from technical decisions before coding
+
+
+      Sections:
+
+      - **Context**: Background, current state, constraints, stakeholders
+
+      - **Goals / Non-Goals**: What this design achieves and explicitly excludes
+
+      - **Architecture / Sequence diagrams**: include a mermaid architecture
+      (`flowchart`/`graph`) and/or sequence (`sequenceDiagram`) diagram per the
+      Diagrams rule — architecture when components/boundaries change, sequence
+      when a runtime flow changes. A pure-library/rename/config change with no
+      structural or flow change may state "Diagrams: N/A — <reason>" instead.
+
+      - **Decisions**: Key technical choices with rationale (why X over Y?).
+      Include alternatives considered for each decision.
+
+      - **Risks / Trade-offs**: Known limitations, things that could go wrong.
+      Format: [Risk] → Mitigation
+
+      - **Migration Plan**: Steps to deploy, rollback strategy (if applicable)
+
+      - **Open Questions**: Outstanding decisions or unknowns to resolve
+
+
+      Focus on architecture and approach, not line-by-line implementation.
+
+      Reference the proposal for motivation and specs for requirements.
+
+
+      Good design docs explain the "why" behind technical decisions.
+    requires:
+      - proposal
+  - id: threatmodel
+    description: A STRIDE-based threat model
+    generates: threat-model.tc.json
+    template: threat-model.tc.json
+    requires: 
+      - specs
+      - design
+    instruction: |        
+      - Invoke the `threat-model` subagent if any
+        spec deltas exist under `openspec/changes/<name>/specs/`. Pass it
+        `proposal.md`, `design.md`, and all spec deltas as input context.
+        The agent appends its STRIDE summary to `design.md` under a
+        `## Threats` section automatically.
+      - Critical/High residual-risk findings MUST loop back — the main
+        session amends the relevant spec deltas and `design.md` directly
+        (it already holds the `threat-model` agent's recommendations in
+        context, and editing a change's own delta is part of the propose
+        flow), then re-invokes the `threat-model` subagent on the revised
+        draft. Repeat until no Critical/High residual-risk findings remain.
+      - Medium/Low residual-risk findings carry forward as additional
+        context for the tasks generation prompt below, so the resulting
+        tasks reflect the mitigations (additional tasks, ordering
+        constraints, or explicit cross-reference to threat IDs).
+      - Threat/mitigation status uses Threat Composer BUILT-IN fields, set by
+        the `threat-model` agent per its contract — the single source for those
+        rules is the `threat-model` agent's own definition ("Per-threat/Per-mitigation
+        fields" section): every threat starts `threatIdentified`; a mitigation is
+        `mitigationResolved` only if its control already exists, else
+        `mitigationIdentified`; `mitigationLinks` tie each mitigation to the
+        threat(s) whose acceptable residual depends on it; residual lives in
+        `custom:residualRisk` (no invented "pending"/"resolved" markers). The
+        orchestrator never hand-edits these — the loop-back above and the
+        reconcile/gate below are the only state transitions. These two
+        mechanical, fail-closed operations are
+        performed by `openspec/tools/tc.py` (dependency-free), NOT by hand,
+        and `reconcile` is idempotent (it only advances mitigations *from*
+        `mitigationIdentified`, leaving human-set states untouched):
+        - `python3 openspec/tools/tc.py reconcile <change> --shipped
+          <mitigation-ids|all>` flips shipped mitigations to
+          `mitigationResolved` and cascades a threat to `threatResolved` once
+          all its linked mitigations are resolved and its residual is
+          acceptable. This runs at the END of a completed `apply` (see the
+          `apply` instruction), so the model is already reconciled before
+          verify/archive; `/opsx:verify` re-runs it (idempotent) as a
+          re-confirm and the human override point.
+        - `python3 openspec/tools/tc.py gate <change>` is the fail-closed gate
+          (non-zero exit if any Critical/High residual remains, or any
+          not-yet-resolved threat still depends on an unresolved mitigation).
+          It runs as a fail-fast at the end of `apply` AND again at
+          `/opsx:archive`.
+        Re-validate the file against the Threat Composer v1 schema after
+        `reconcile` writes it back.
+  - id: tasks
+    generates: tasks.md
+    description: Implementation checklist with trackable tasks
+    template: tasks.md
+    instruction: |
+      Create the task list that breaks down the implementation work.
+
+      **IMPORTANT: Follow the template below exactly.** The apply phase parses
+      checkbox format to track progress. Tasks not using `- [ ]` won't be tracked.
+
+      Guidelines:
+      - Group related tasks under ## numbered headings
+      - Each task MUST be a checkbox: `- [ ] X.Y Task description`
+      - Tasks should be small enough to complete in one session
+      - Order tasks by dependency (what must be done first?)
+      - After generating tasks, create a task dependency graph in JSON
+        (Task Dependency Graph) that groups tasks into waves. The graph is
+        a **DAG**, not a sequence: each wave declares its prerequisite waves
+        via `dependsOn: [<wave-id>...]` (empty/absent = root wave with no
+        prerequisites). The apply phase parses this DAG and runs all waves
+        whose prerequisites are satisfied **concurrently**, each in its own
+        subagent. Wave id is an identifier, NOT a wall-clock ordering — two
+        waves with the same `dependsOn` set form a parallel cohort.
+
+      - **Waves are the unit of concurrency.** Tasks within a single wave
+        run inside one subagent (so they share that subagent's context and
+        can be done in whatever order the subagent picks). Tasks ACROSS
+        independent waves run concurrently in separate subagents. HOW those
+        subagents are spawned and scheduled is platform-specific — this
+        artifact specifies only the wave structure, not the spawn mechanism;
+        see AGENTS.md's "Code-change workflow".
+
+      - **Wave packaging rules** (so the per-wave subagent can actually
+        finish the wave on its own):
+        - **Target the finest *safe* wave — that is how you parallelize.**
+          The orchestrator's only concurrency lever is spawning more
+          subagents, and a wave is the unit it spawns; there is NO
+          per-task subagent (a single task is not independently ownable —
+          it may share a file or test with its neighbors, which is exactly
+          why tasks get grouped). So to run independent work in parallel,
+          emit it as **separate sibling waves** sharing the same
+          `dependsOn` (a cohort the apply loop runs concurrently), NOT as
+          several tasks bundled into one wave. A wave should be the
+          *smallest* set of tasks that is both file-disjoint from every
+          other wave and carries a self-contained test surface.
+        - **`##` task-group headings are organizational, not wave
+          boundaries.** A heading exists for human readability; its tasks
+          may split across several waves, and one wave may draw tasks from
+          multiple headings (the example DAG below puts `1.1` and `4.1` in
+          wave 0). Decide wave membership by file ownership + shared test
+          surface, never by which heading a task sits under.
+        - **But don't over-fragment.** Keep tasks in ONE wave when they
+          share a file, share a test (e.g. one integration test covering
+          several functions), or form a cohesive multi-file unit a single
+          subagent implements better with shared context. Each wave costs
+          one implementer spawn (fixed per-spawn overhead + lost shared
+          context), so splitting a cohesive change into per-file waves is a
+          net loss. Rule of thumb: a wave of a few tightly-related
+          file-disjoint tasks is fine. Split only when the split actually
+          shortens wall-clock — i.e. the split-off work is on (or feeds) the
+          critical path, or splitting unblocks a downstream wave sooner.
+          Splitting work that sits OFF the critical path buys zero wall-clock
+          and still costs a spawn, so it is a net loss; concurrency that does
+          not shorten the longest path through the DAG is not worth a wave.
+        - **Minimize the DAG's *depth*; widen the root cohort.** Wall-clock is
+          bounded by the DAG's critical path, and that path is measured in
+          WAVES — so a shallow, wide graph beats a deep, narrow one. Put every
+          wave whose work does not genuinely depend on another wave's output
+          in the **root cohort** (empty `dependsOn`) so the scheduler starts
+          it immediately; never chain a wave behind setup/scaffolding it does
+          not actually need. Add a `dependsOn` edge ONLY for a real
+          producer→consumer dependency (a wave needs another's code, files, or
+          migrations to exist first), never for tidiness or to mirror `##`
+          heading order. The common anti-pattern is funnelling everything
+          through one setup wave: split setup so each downstream wave depends
+          only on the piece it actually consumes.
+        - No two waves may edit the same file (would create merge
+          contention between concurrent subagents).
+        - **Tests SHIP IN THE SAME WAVE as the code they cover.** A wave's
+          subagent is responsible for both implementing and testing its
+          chunk; tests in a later wave can't catch regressions in an
+          earlier wave's implementation in time. If two waves touch
+          overlapping logic, fold them into one wave rather than
+          splitting impl from tests.
+        - There is NO per-wave agent review or simplify — a wave's only
+          in-loop gate is its own tests passing (run by the implementer via
+          Bash). `code-simplifier`, `code-reviewer`, `security-reviewer`,
+          and `tester` all run ONCE, after every wave completes, on the
+          cumulative diff (see the apply instruction). So size waves for
+          clean file ownership and a self-contained test surface, not for
+          per-wave review isolation.
+
+      Example:
+
+      ```
+      ## 1. Setup
+
+      - [ ] 1.1 Create new module structure
+      - [ ] 1.2 Add dependencies to package.json
+
+      ## 2. Core Implementation
+
+      - [ ] 2.1 Implement data export function (+ tests)
+      - [ ] 2.2 Add CSV formatting utilities (+ tests)
+      ```
+
+      ## Task Dependency Graph
+      ```json
+      {
+        "waves": [
+          { "id": 0, "dependsOn": [], "tasks": ["1.1", "4.1"] },
+          { "id": 1, "dependsOn": [0], "tasks": ["1.2", "1.3", "1.4"] },
+          { "id": 2, "dependsOn": [0], "tasks": ["2.1", "4.2", "4.3"] },
+          { "id": 3, "dependsOn": [1, 2], "tasks": ["2.2", "2.3"] },
+          { "id": 4, "dependsOn": [3], "tasks": ["5.1", "5.2", "5.3"] }
+        ]
+      }
+      ```
+
+      In this example, waves 1 and 2 BOTH depend only on wave 0 — once
+      wave 0 completes, the orchestrator launches subagents for waves 1
+      and 2 in the same turn. Wave 3 waits for both before launching.
+      Wave id 1 vs id 2 carries no ordering significance.
+
+      Reference specs for what needs to be built, design for how to build it.
+
+      Each task should be verifiable - you know when it's done.
+    requires:
+      - specs
+      - design
+      - threatmodel
+apply:
+  requires:
+    - tasks
+  tracks: tasks.md
+  instruction: |
+    Read context files (proposal, design, threat-model, specs, tasks).
+
+    The main session is the **orchestrator** — it parses the Task Dependency
+    Graph from `tasks.md`, dispatches IMPLEMENTATION to wave subagents, and
+    runs the SINGLE simplify/review/test gate itself, once, after all waves
+    complete. There is NO per-wave agent review. The orchestrator MUST NOT
+    execute wave implementation tasks directly; every implementation task is
+    performed inside a wave subagent.
+
+    WHY review is orchestrator-driven (do not "fix" this back): a subagent
+    cannot spawn another subagent — the harness withholds subagent spawning
+    from any non-root context to bound recursion. So a wave subagent CANNOT
+    invoke `code-simplifier`, `code-reviewer`, `security-reviewer`, or
+    `tester` (those are themselves subagents); if instructed to, it silently
+    degrades to a self-review, which is NOT the bar. Independent specialist
+    review is mandatory and only the orchestrator can spawn it (including in
+    parallel), which is why it is consolidated into one aggregate gate at the
+    end.
+
+    This artifact specifies WHAT the apply workflow must do; the concrete
+    spawn / parallelism / re-dispatch PRIMITIVES are platform-specific.
+    Follow AGENTS.md's "Code-change workflow", which is authoritative for
+    how to dispatch waves, run the aggregate gate in parallel, and
+    re-dispatch for fixes.
+
+    Orchestration semantics:
+
+    1. Parse the wave DAG from `tasks.md` — a DAG keyed on `dependsOn`, NOT a
+       sequence. A wave becomes eligible the moment every wave it depends on
+       has completed; all eligible waves run CONCURRENTLY, each in its own
+       subagent. Waves sharing a `dependsOn` set form a parallel cohort; an
+       empty/absent `dependsOn` is a root wave. Do not impose an artificial
+       barrier between cohorts — dispatch a wave as soon as its own
+       prerequisites are satisfied.
+
+    2. Dispatch each wave to exactly ONE implementer subagent, giving it:
+       (a) the wave's task list with full descriptions; (b) the relevant
+       context files; (c) the implementer contract below.
+
+       Per-wave IMPLEMENTER subagent contract:
+       - Implement the wave's tasks. Touch only files the tasks identify.
+       - Write the wave's tests in the SAME wave (per the `tasks` artifact's
+         wave-packaging rules) and run them until green — running tests is
+         not a subagent spawn, so the implementer does this itself. SCOPE the
+         run to the wave's own paths (e.g. `uv run pytest
+         tests/unit/cairn_<module>/`), not a bare repo-wide `pytest`: waves
+         are file-disjoint so a wave cannot regress another wave's tests, and
+         the post-wave `mise run check` is the single full-suite gate.
+       - Keep the code clean as you write it. Do NOT attempt to invoke
+         `code-simplifier`/`code-reviewer`/`security-reviewer` — you cannot
+         (see WHY above). Report back the list of files you touched once
+         tests pass.
+
+    3. The orchestrator does NOT review per wave. As waves complete it marks
+       their tasks `- [x]` in `tasks.md` with a one-line summary (the wave's
+       own tests passing in step 2 is the only in-loop gate) and dispatches
+       any waves that have just become eligible. No `code-simplifier`/
+       `code-reviewer`/`security-reviewer`/`tester` spawns happen in this loop.
+
+    After ALL waves complete, the orchestrator runs the SINGLE aggregate
+    quality gate on the CUMULATIVE diff, in order:
+    1. `code-simplifier` — the one simplify pass for the whole change,
+       positioned here so it catches duplication BETWEEN waves that a
+       per-wave pass cannot see; it edits and re-confirms tests.
+    2. `code-reviewer` + `security-reviewer` + `tester` run IN PARALLEL on
+       the simplified cumulative diff. Reviewers MUST report no Critical/High;
+       `tester` fills coverage/edge-case gaps and adds the regression tests
+       the per-wave implementers did not.
+    3. `mise run check` (full pre-merge gate — ruff, full pytest, `openspec
+       validate --specs --strict`, CDK typecheck + jest).
+    To fix findings, RE-DISPATCH the affected work to a fresh subagent with
+    the findings as feedback (subagent sessions do not persist across the
+    gate; use your platform's re-dispatch / loop primitive per your operating
+    manual) — or fix a pure cross-wave seam issue directly — then re-run the
+    gate until clean. This pass is the only review and only simplify for the
+    change; it sees cross-wave composition / seam issues (e.g. a new caller
+    inconsistent with an existing API) no per-wave pass could.
+
+    Then, BEFORE committing — and ONLY when every task is complete and the
+    change has a `threat-model.tc.json` (skip otherwise; a paused or partial
+    apply must NOT reconcile, because not all mitigations have shipped yet) —
+    reconcile and gate the threat model so it is already settled by the time
+    `/opsx:verify` and `/opsx:archive` run:
+    a. `python3 openspec/tools/tc.py reconcile "<change>" --shipped <ids>`,
+       where `<ids>` is the explicit set of mitigation ids whose implementing
+       tasks completed in THIS change (map them from the tasks that reference
+       each threat / mitigation id). Use `--shipped all` ONLY when every
+       still-`mitigationIdentified` mitigation in the model was in-scope for
+       this change — never blanket-`all` if a mitigation was deliberately
+       deferred to a future change, or it will be wrongly resolved. Re-validate
+       the rewritten file against the Threat Composer v1 schema
+       (`threat_modeling_validate_tc_schema`).
+    b. `python3 openspec/tools/tc.py gate "<change>"` as a fail-fast. A non-zero
+       exit means the change is NOT actually done — a Critical/High residual
+       remains, or a threat still depends on an unshipped/unresolved mitigation.
+       Surface it (see below) and do NOT mark the change complete or commit
+       until it is resolved.
+    Once the gate passes, commit.
+
+    Pause and surface to the user if you hit blockers, ambiguity, or a
+    finding that requires a design change.

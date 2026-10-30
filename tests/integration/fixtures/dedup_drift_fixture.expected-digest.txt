@@ -1,0 +1,33 @@
+# Pinned EXACT content Manifest_Digest for dedup_drift_fixture.json.
+#
+# This backs the drift tripwire in
+# tests/integration/test_dedup_and_drift.py::test_observable_outputs_pinned_against_drift
+# (toolchain Scenario "Observable outputs are pinned against drift").
+#
+# WHAT THIS IS, WHY IT TRIPS, and HOW TO RE-PIN: see runbooks/drift-digest-pin.md.
+# Read it before changing the value below. Re-pin ONLY if you intended to change
+# bundle identity; otherwise a mismatch is a real regression, not a stale pin.
+#
+# The content digest is a pure, reproducible function of the bundle's content
+# bytes: the content-descriptive Config_Blob (projectId ONLY) plus the content
+# layers, with `org.opencontainers.image.created` pinned to epoch 0 (no
+# wall-clock / randomness folded in). A fixed fixture therefore yields a fixed
+# digest. Artifact-kind is NOT in the content manifest: the Config_Blob carries
+# projectId only (no `bundleType`) and the manifest emits no
+# `dev.cairnproofs.artifact.artifact-kind` annotation. Kind lives ONLY in the
+# signed Producer_Attestation_Referrer (`artifactKind` claim), so it is NOT in the content
+# digest. projectId remains in BOTH the Config_Blob and the manifest annotations,
+# so projectId IS in the content digest. The producer CLAIM fields
+# (artifactKind, controls, catalogOrProfileUuid, assessmentPeriod, assessor,
+# assessmentId, supersedes, orgId, tenantId) are NOT — they live only in the
+# Producer_Attestation_Referrer.
+#
+# SCOPE: this value is for the DEFAULT project `mvp-project`
+# (CAIRN_INTEGRATION_PROJECT_ID unset). Because projectId is a Config_Blob field,
+# running the drift test against a different project yields a different digest —
+# re-capture the pin for that project if you change CAIRN_INTEGRATION_PROJECT_ID,
+# or the test will report spurious drift.
+#
+# Lines starting with `#` and blank lines are ignored; the first non-comment
+# line is the pinned digest.
+sha256:7b623a0d98dd55178b180f0083cd19d1e9d0de42e6c5c27fa79e9bb6f21a276e
