@@ -1,8 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/kiro-agent.json",
   "name": "implementer",
-  "description": "Implements one file-disjoint wave of an OpenSpec change's Task Dependency Graph \u2014 writes the production code for its assigned tasks plus the tests that cover it, and runs those scoped tests to green. Dispatched by the orchestrator as a subagent stage (role=implementer); never commits, never runs the full mise run check, never spawns subagents. Triggers on \"implement this wave\", \"write the code for these tasks\", \"build out tasks N-M\".",
-  "prompt": "file://../agent-prompts/implementer.md",
+  "description": "Implements an OpenSpec change: follows the openspec-apply-change skill over the change's tasks.md, writes the production code and the tests that cover it, and runs those scoped tests to green. Runs as the implement and apply-fixes steps of the opsx-apply workflow, or when dispatched by the orchestrator. Never commits, never runs the full mise run check, and never spawns subagents. Triggers on \"implement these tasks\", \"write the code for these tasks\", \"build out tasks N-M\".",
   "tools": [
     "code",
     "glob",
@@ -22,7 +21,8 @@
     "read": {
       "deniedPaths": [
         "CLAUDE.md",
-        ".claude/**"
+        ".claude/**",
+        "openspec/changes/archive/**"
       ]
     },
     "write": {
@@ -34,7 +34,10 @@
         "tests/**",
         "**/__tests__/**",
         "docs/**",
-        "runbooks/**"
+        "runbooks/**",
+        "pyproject.toml",
+        "uv.lock",
+        "openspec/changes/*/tasks.md"
       ],
       "deniedPaths": [
         "openspec/specs/**",
@@ -161,7 +164,8 @@
         "capability": "fs_read",
         "match": [
           "CLAUDE.md",
-          ".claude/**"
+          ".claude/**",
+          "openspec/changes/archive/**"
         ],
         "effect": "deny"
       },
@@ -175,7 +179,10 @@
           "tests/**",
           "**/__tests__/**",
           "docs/**",
-          "runbooks/**"
+          "runbooks/**",
+          "pyproject.toml",
+          "uv.lock",
+          "openspec/changes/*/tasks.md"
         ],
         "effect": "allow"
       },

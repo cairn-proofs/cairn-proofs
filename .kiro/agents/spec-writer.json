@@ -1,8 +1,9 @@
 {
   "$schema": "https://json.schemastore.org/kiro-agent.json",
   "name": "spec-writer",
-  "description": "Authors substantial, settled documentation as a delegated subagent: runbooks, ADRs, design docs and narratives, plans, OpenSpec proposal/design/spec prose, threat-model write-ups, user stories. Dispatched by the orchestrator when a document's content is decided and needs to be written or substantially expanded \u2014 NOT for small inline edits, comment tweaks, or docs still being negotiated turn-by-turn with the user. Reads the project writing rules (writing-recommendations.md) before writing and works only within its scoped paths; cannot run the validation gate, so the main session validates afterward. For tightening or cleaning up a document that ALREADY exists, use the spec-simplifier skill instead.",
+  "description": "Authors substantial, settled technical documentation as a delegated subagent: runbooks, ADRs, design docs, plans, OpenSpec proposal/design/spec prose, threat-model write-ups, user stories. Dispatched by the orchestrator when a document's content is decided and needs to be written or substantially expanded \u2014 NOT for small inline edits, comment tweaks, or docs still being negotiated turn-by-turn with the user. Cannot run the validation gate, so the main session validates afterward. For tightening or cleaning up a document that ALREADY exists, use the ASD-STE100 skill instead.",
   "prompt": "file://../agent-prompts/spec-writer.md",
+  "model": "claude-sonnet-5.5",
   "tools": [
     "glob",
     "grep",
@@ -20,7 +21,8 @@
     "read": {
       "deniedPaths": [
         "CLAUDE.md",
-        ".claude/**"
+        ".claude/**",
+        "openspec/changes/archive/**"
       ]
     },
     "write": {
@@ -80,8 +82,7 @@
     }
   },
   "resources": [
-    "file://AGENTS.md",
-    "file://.kiro/skills/spec-simplifier/references/writing-recommendations.md"
+    "file://AGENTS.md"
   ],
   "permissions": {
     "rules": [
@@ -133,7 +134,8 @@
         "capability": "fs_read",
         "match": [
           "CLAUDE.md",
-          ".claude/**"
+          ".claude/**",
+          "openspec/changes/archive/**"
         ],
         "effect": "deny"
       },

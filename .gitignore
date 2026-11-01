@@ -56,3 +56,6 @@ lambda-bundles/
 
 # don't publish these to public repo
 private/
+
+# Kiro workflow run artifacts (review verdicts, gate logs)
+/openspec/workflow-runs/

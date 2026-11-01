@@ -1,8 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/kiro-agent.json",
   "name": "orchestrator",
-  "description": "OpenSpec change orchestrator for Cairn Proofs. The main session for the opsx-* (explore / propose / apply / verify / archive) flows: it parses the Task Dependency Graph in a change's tasks.md, dispatches file-disjoint waves to the implementer via the subagent tool, and runs the single post-wave code-simplifier -> code-reviewer + security-reviewer + tester gate on the cumulative diff before commit. Spawns the code-reviewer, security-reviewer, tester, code-simplifier, threat-model, and spec-writer specialists without a confirmation prompt.",
-  "prompt": "file://../agent-prompts/orchestrator.md",
+  "description": "OpenSpec change orchestrator for Cairn Proofs. The main session for the opsx-* flows (explore, propose, apply, verify, archive). In the opsx-apply workflow it runs the full-gate step: it confirms the review verdict and the all_done task state, runs mise run check, and runs the threat-model reconcile and gate. Spawns the code-reviewer, security-reviewer, tester, code-simplifier, threat-model, and spec-writer specialists without a confirmation prompt.",
   "tools": [
     "*"
   ],
@@ -46,8 +45,7 @@
   },
   "resources": [
     "file://AGENTS.md",
-    "file://README.md",
-    "file://.kiro/skills/spec-simplifier/references/writing-recommendations.md"
+    "file://README.md"
   ],
   "welcomeMessage": "orchestrator ready.",
   "useLegacyMcpJson": true,
