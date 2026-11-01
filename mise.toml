@@ -40,6 +40,11 @@ _.file = ".env"
 # gates in parallel. `cdk-synth` is intentionally NOT in check.depends; see
 # openspec/specs/toolchain/spec.md and mise-task-runner/design.md (D3).
 
+# Agents in this repo require the ASD-STE100 skill, so install it automatically
+# after every `mise install` (the task is idempotent; see tasks.install-asd-ste100).
+[hooks]
+postinstall = { task = "install-asd-ste100" }
+
 [tasks.lint]
 description = "Ruff lint (Python)"
 run = "uv run ruff check ."
@@ -156,6 +161,41 @@ description = "CDK synth (on-demand; NOT part of check)"
 depends = ["cdk-install"]
 dir = "cdk"
 run = "npx cdk synth --quiet"
+
+[tasks.install-asd-ste100]
+description = "Install the ASD-STE100 skill (pinned commit) into USER-level ~/.claude/skills and ~/.kiro/skills"
+# Writes OUTSIDE the repo, to the contributor's home directory (machine-wide, shared
+# by every worktree). GitHub does not serve `git archive --remote`, so shallow-fetch
+# the pinned commit into a temp repo and run `git archive` locally. Pinned to a full
+# SHA (supply-chain hygiene); bump ASD_STE100_REF deliberately. The skill lives at
+# the repo root, so the plugin manifest (.claude-plugin) is excluded. Re-running
+# replaces the install. The directory name matches the upstream repo name.
+env = { ASD_STE100_REPO = "https://github.com/danyuchn/asd-ste100-skill.git", ASD_STE100_REF = "f5493be06ff82799d90c24fb803457086506e996" }
+run = '''
+set -euo pipefail
+# Idempotent: runs on every `mise install` (postinstall hook), so skip the network
+# fetch when both destinations already carry the pinned ref in their marker file.
+current=1
+for dir in "$HOME/.claude/skills" "$HOME/.kiro/skills"; do
+  [ "$(cat "$dir/asd-ste100-skill/.installed-ref" 2>/dev/null)" = "$ASD_STE100_REF" ] || current=0
+done
+if [ "$current" = 1 ]; then
+  echo "asd-ste100 skill already at ${ASD_STE100_REF:0:7}"
+  exit 0
+fi
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+git init -q "$tmp/src"
+git -C "$tmp/src" fetch -q --depth 1 "$ASD_STE100_REPO" "$ASD_STE100_REF"
+for dir in "$HOME/.claude/skills" "$HOME/.kiro/skills"; do
+  dest="$dir/asd-ste100-skill"
+  rm -rf "$dest"
+  mkdir -p "$dest"
+  git -C "$tmp/src" archive FETCH_HEAD -- . ':!.claude-plugin' | tar -x -C "$dest"
+  echo "$ASD_STE100_REF" > "$dest/.installed-ref"
+  echo "installed $dest @ ${ASD_STE100_REF:0:7}"
+done
+'''
 
 [tasks.check]
 description = "Full pre-merge pipeline (Python + CDK + specs)"
