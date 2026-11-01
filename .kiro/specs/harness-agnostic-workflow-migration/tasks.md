@@ -400,10 +400,10 @@ Baseline commit for every "pre-change value" and byte-equality check: `37af994`.
     - Files: every path of this change
     - _Requirements: 9.17, 9.18, 10.4, 12.1, 12.7_
 
-- [ ] 10. File the follow-up GitHub issues
+- [x] 10. File the follow-up GitHub issues
   - Start this task only after every earlier task is complete.
 
-  - [ ] 10.1 File the two issues with the capture workflow
+  - [x] 10.1 File the two issues with the capture workflow
     - Load the `capture` skill. File one issue for each item:
       - Convert ADR-0006 from "superseded in part" to the replace-and-delete rule of the amended ADR-0001.
       - All deferred Claude-side work: the remaining `.claude/` references to the retired vocabulary, the port of the Kiro HOW content and the `spec-writer` delegation policy to the Claude tree (after which the policy can move into `AGENTS.md`), and the `openspec/changes/archive/**` read denial for the `.claude/` agent definitions.
