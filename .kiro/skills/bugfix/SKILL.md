@@ -82,11 +82,11 @@ If the change is mostly new capability and the bug is a side effect, use `/opens
         - "Spec Alignment" matches the decision from `bugfix.md`'s "Spec Impact" — if amendment is needed, create the delta spec file alongside `design.md` at `openspec/changes/<name>/specs/<capability>/spec.md`.
 
       - **tasks (`tasks.md`)**:
-        - Group 1 (Bug Reproduction RED) comes first and is its own wave.
-        - Group 2 (Fix) depends on Group 1 in the Task Dependency Graph — the RED tests must exist before the fix lands.
-        - Group 4 (Spec Sync) is dropped from both the checklist AND the wave DAG if `bugfix.md`'s "Spec Impact" said "None".
-        - Group 5 (Verification) includes `mise run check`.
-        - The wave DAG JSON is present, parseable, and respects the "no two waves edit the same file" rule.
+        - Group 1 (Bug Reproduction RED) comes first.
+        - Every Group 2 (Fix) task comes after every Group 1 task, so the RED tests exist and fail before the fix lands.
+        - Group 4 (Spec Sync) is dropped from the checklist if `bugfix.md`'s Spec Impact said None.
+        - The checklist has no `mise run check` task; the aggregate gate runs it.
+        - The checklist is in RED → fix → regression order and has no dependency-graph block.
 
    f. Re-run `openspec status --change "<name>" --json` after each artifact. Stop when every artifact in `applyRequires` has `status: "done"`.
 
@@ -107,8 +107,8 @@ After completing all artifacts, summarize:
 - Change name and location (`openspec/changes/<name>/`)
 - Schema: `bugfix`
 - Artifacts created: `bugfix.md`, `design.md`, `tasks.md` (and any spec deltas)
-- Wave count and the RED-before-fix ordering
-- Prompt: "Run `/openspec-apply-change <name>` (or ask me to implement) to start implementing. Wave 0 (RED reproduction) will run first; if those tests pass against main, the workflow pauses for you to revisit `bugfix.md`."
+- Task count and the RED-before-fix ordering
+- Prompt: "Run the saved `opsx-apply` workflow on `<name>` (or ask me to implement) to start implementing. The RED reproduction tasks run first. If those tests pass against main, the workflow pauses so you can revisit `bugfix.md`."
 
 **Artifact Creation Guidelines**
 
@@ -129,5 +129,5 @@ After completing all artifacts, summarize:
 **Relationship to other opsx commands**
 
 - `/openspec-explore` — use this first if the bug is poorly understood; come back to `/openspec-bugfix` once you can articulate Current vs. Expected behavior.
-- `/openspec-apply-change` — implements the wave DAG generated here. The RED-wave subagent has a special pause: if the failing tests pass against main, it stops and surfaces to the user instead of advancing to the fix wave.
+- `/openspec-apply-change` — implements the checklist generated here. On Kiro, the saved `opsx-apply` workflow runs it. The RED tasks have a special pause: if the failing tests pass against main, the run stops and surfaces to the user instead of advancing to the fix tasks.
 - `/openspec-archive-change` — same as for any change; runs spec sync if a delta was authored.

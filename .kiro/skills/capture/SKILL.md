@@ -1,6 +1,6 @@
 ---
 name: capture
-description: Quick-capture an idea as a lightweight user story + acceptance criteria in a GitHub issue. Follow the writing guidelines provided by the spec-simplifier SKILL. Use when the user wants to record a deferred idea, problem, or feature for later without interrupting current work — upstream of and independent from the OpenSpec flow. Triggers on "capture this", "jot this down for later", "file this for later", "stash this idea".
+description: Quick-capture an idea as a lightweight user story + acceptance criteria in a GitHub issue. Follow the writing guidelines provided by the ASD-STE100 skill. Use when the user wants to record a deferred idea, problem, or feature for later without interrupting current work — upstream of and independent from the OpenSpec flow. Triggers on "capture this", "jot this down for later", "file this for later", "stash this idea".
 ---
 
 Quick-capture an idea as a lightweight user story + acceptance criteria, filed as exactly **one** GitHub issue.
