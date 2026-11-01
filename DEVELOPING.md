@@ -27,6 +27,10 @@ Deploying:
 
 > **Threat-model diagram rendering:** The `threat-model` agent and `mise run tm-render` use `mmdc` (`@mermaid-js/mermaid-cli`) to render threat-model DFDs to PNG for the Threat Composer UI. `mise install` provisions the `mmdc` binary. Its headless browser is a **separate, one-time `mise run mmdc-setup`** (~160MB `chrome-headless-shell`). `mise install` deliberately does not auto-download the browser, so CI and `deploy.sh` never pay for it. This step is **dev-time only**, off the `deploy.sh` path and out of `mise run check`. It degrades gracefully if the browser is absent — diagram slots stay empty and threat models still validate. See [`docs/adr/0013-accept-chromium-dependency-for-threat-model-diagram-rendering.md`](docs/adr/0013-accept-chromium-dependency-for-threat-model-diagram-rendering.md).
 
+### Supported platforms
+
+Development is supported on **macOS and Linux** (including WSL2 on Windows). Native Windows is **not supported**: the build and deploy scripts (`cdk/scripts/*.sh`, `lambda-layers/notation/build.sh`) and the bash-based `mise` tasks assume a POSIX shell and standard Unix tools (`git`, `tar`, `mktemp`). macOS contributors also need `brew install flock`; see the "Concurrency-safe ambient state" notes in [AGENTS.md](AGENTS.md).
+
 First-time setup:
 
 ```bash
@@ -53,7 +57,10 @@ pre-commit install
 # 6. (Optional, threat-model authors only) Provision the headless browser mmdc 
 #    uses to render threat-model diagrams in the OpenSpec propose flow. One-time, idempotent, ~160MB.
 mise run mmdc-setup
+
 ```
+
+> **ASD-STE100 skill (required, installed automatically):** the repo's agents depend on the ASD-STE100 writing skill. A `postinstall` hook in `mise.toml` runs `mise run install-asd-ste100` after every `mise install`, so no manual step is needed. The task writes **outside the repo**, to your user-level skill dirs (`~/.claude/skills/asd-ste100-skill` and `~/.kiro/skills/asd-ste100-skill`). It affects every project on the machine and replaces any existing copy there. It installs a commit pinned in `mise.toml` (bump `ASD_STE100_REF` deliberately), needs network access to github.com, and skips the fetch when both copies already match the pin. Run it by hand with `mise run install-asd-ste100` if the hook was skipped (`--no-hooks`, `MISE_NO_HOOKS=1`).
 
 Adding a new project tool: prefer pinning it in `mise.toml` over `brew install`-ing it per machine. Mise supports a wide set of backends (`aws` via the aws-cli plugin, npm packages via `npm:` prefix, generic ubi/aqua/asdf backends for almost everything else). Fall back to brew/curl only when mise has no backend.
 

@@ -135,18 +135,19 @@ container daemon — Lambda bundling is a pure `uv` cross-install. See
 
 ## 7. Spec-driven code-change workflow
 
-Changes flow through OpenSpec. Requirement changes go through the `/openspec-propose`
-/ `/openspec-apply-change` / `/openspec-archive-change` flows; the main session orchestrates wave
-subagents for implementation, then runs a single simplify → review → test gate
-on the cumulative diff, then `mise run check`.
+Changes flow through OpenSpec. Requirement changes go through the `/openspec-propose`, apply, and `/openspec-archive-change` flows. On Kiro, the saved `opsx-apply` workflow runs the apply: one implement step works through the `tasks.md` checklist, then one simplify, review, and test gate loop runs on the change's uncommitted changes, then the full gate runs `mise run check`. For parallel implementation, Kiro generates a workflow for the change from its `tasks.md`; nothing in the repository schedules it.
 
 ```mermaid
 flowchart TD
-    S["/openspec-propose (if a Requirement changes)"] --> I["/openspec-apply-change — dispatch Task Dependency Graph as parallel wave subagents"]
-    I --> G["Aggregate gate: code-simplifier -> (code-reviewer + security-reviewer + tester) -> mise run check"]
-    G -->|clean| CM["Commit (Conventional Commits, named-file add)"]
-    G -->|findings| I
-    CM --> AR["/openspec-archive-change — fold spec delta into openspec/specs/"]
+    S["/openspec-propose (if a Requirement changes)"] --> I["opsx-apply: implement step follows the tasks.md checklist"]
+    S -.->|parallel implementation| KG["Kiro-generated workflow from tasks.md"]
+    KG -.-> G
+    I --> G["Gate loop: code-simplifier -> (code-reviewer + security-reviewer + tester) -> adjudicate"]
+    G -->|findings| F["Implementer fixes findings"]
+    F --> G
+    G -->|approved| FG["Full gate: mise run check, threat-model reconcile + gate"]
+    FG --> CM["Commit (Conventional Commits, named-file add)"]
+    CM --> AR["/openspec-archive-change: fold spec delta into openspec/specs/"]
 ```
 
 The authoritative, detailed description of this workflow lives in `AGENTS.md`

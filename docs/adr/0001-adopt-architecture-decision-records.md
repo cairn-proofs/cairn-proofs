@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted (2026-05-30)
+Accepted (2026-05-30). Amended 2026-11-01: the replace-and-delete rule replaces the supersede-in-place rule (see Decision and "Why superseded ADRs are deleted"). This is the one amendment to this ADR's body.
 
 ## Context
 
@@ -14,9 +14,9 @@ The decisions that suffer most from this gap are cross-cutting decisions, deferr
 
 ## Decision
 
-Adopt numbered, append-only Architecture Decision Records under `docs/adr/NNNN-kebab-title.md`.
+Adopt numbered Architecture Decision Records under `docs/adr/NNNN-kebab-title.md`.
 
-ADRs are **immutable once Accepted**. To reverse a decision, write a *new* ADR and set the old one's Status to "Superseded by ADR-NNNN". Never edit the body of the old one. This preserves intact the record of what we believed and why, at the time we believed it.
+An ADR in force is **immutable**. To change a decision, write a *new* ADR that restates every decision of the old ADR that still stands, then delete the old ADR. The new ADR records in a "Retired approach" section why the old decision ended. ADR numbers are never reused.
 
 The boundary rule against the opsx change flow is explicit:
 
@@ -32,11 +32,18 @@ ADRs live under `docs/adr/`, not inside the `openspec/` tree, for two reasons.
 
 `docs/` is already the project-wide engineering-reference tree, which matches ADRs' project-wide scope.
 
+## Why superseded ADRs are deleted
+
+- The goal is that no person or agent reads obsolete or misleading content. Reader time and agent tokens are limited.
+- A status marker, an archive directory, or a read restriction leaves the old text reachable. Whole-file loads, search, and the shell still find it. Only deletion removes it.
+- A kept chain makes each reader open old ADRs to learn what still stands. A self-contained successor makes one read enough.
+- The cost is that the old text leaves the working tree and stays only in git history. A reader must look it up in history on purpose. The successor's "Retired approach" section records why the old decision ended.
+
 ## Consequences
 
 **Positive**
 
-- Drift-resistant by construction: ADRs are point-in-time and append-only. So they cannot rot against the evolving specs the way a steady-state narrative does.
+- Drift-resistant by construction: ADRs in force are point-in-time and immutable. So they cannot rot against the evolving specs the way a steady-state narrative does.
 - A greppable, chronological decision log — the cross-cutting WHY is discoverable in one place instead of reconstructed from git and archived change directories.
 - Fills the opsx living-narrative gap without re-introducing a dual source of truth.
 

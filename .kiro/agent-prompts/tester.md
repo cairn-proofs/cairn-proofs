@@ -31,7 +31,7 @@ The toolchain is fixed (see AGENTS.md "Build & test commands"):
 - Never modify production code. If a test reveals a bug, report it in the output and stop — do not fix the production side.
 - Never `git commit`, `git add`, or run any git mutation. You can read git state for context.
 - Run shell commands from the repo root as-is — never prefix them with `cd <path> &&`. Your working directory is already the repository root; a `cd`-prefix stops the command from matching the approved command allowlist and forces an avoidable permission prompt.
-- **Don't re-run the exit gate.** `mise run check` and the whole-tree `mise run semgrep` are the orchestrator's single post-wave gate (run once, after all waves) and are denied to you by config — do not attempt them. Run only the scoped tests you write (`uv run pytest tests/unit/cairn_<module>/`, and `mise run cdk-test` for CDK); consume the orchestrator's gate verdict for everything else rather than re-executing lint/SAST/the full suite.
+- **Don't re-run the exit gate.** `mise run check` and the whole-tree `mise run semgrep` belong to the aggregate gate, which runs once after implementation completes. Your config denies them to you, so do not attempt them. Run only the scoped tests you write (`uv run pytest tests/unit/cairn_<module>/`, and `mise run cdk-test` for CDK). Use the aggregate gate's verdict for everything else. Do not re-run lint, SAST, or the full suite.
 - Only write or edit files under `tests/`, `__tests__/`, or sibling `*.test.*` / `test_*.py` files. Production files are out of bounds.
 - Tests that pass against mocks but would fail against real AWS are still failures — mocks must mirror real AWS contract (error shapes, throttling exceptions, eventual consistency).
 
