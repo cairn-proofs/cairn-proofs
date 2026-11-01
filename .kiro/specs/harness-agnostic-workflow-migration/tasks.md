@@ -385,11 +385,11 @@ Baseline commit for every "pre-change value" and byte-equality check: `37af994`.
     - Files: none
     - _Requirements: 6.9, 7.5_
 
-- [ ] 9. Commit the change
+- [x] 9. Commit the change
   - The main session does this task, and only when the user asks.
   - Shell rule: never prefix a shell command with `cd`. Use the tool's `cwd` parameter if needed.
 
-  - [-] 9.1 Commit with named-file pathspec commits
+  - [x] 9.1 Commit with named-file pathspec commits
     - Run `git status --porcelain`. Note any pre-staged file that is not part of this change.
     - For each new file of this change, run `git add <named file>`. The new files include `.kiro/workflows/opsx-apply.workflow.json`, `.kiro/steering/document-authoring.md`, `docs/adr/0021-checklist-floor-and-native-orchestration.md`, and the files under `.kiro/specs/harness-agnostic-workflow-migration/`. Never run `git add -A` or `git add .`.
     - Commit with an explicit pathspec: `git commit <path> <path> ... -m "<message>"`. The pathspec lists every changed, deleted, and new path of this change, and no other path. A pathspec commit leaves other staged work out of the commit.
