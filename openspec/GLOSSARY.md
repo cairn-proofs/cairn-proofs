@@ -139,7 +139,7 @@ Any principal that produces and pushes Artifact_Bundles (CI/CD pipelines, scanne
 The genus over everything in the store: any digest/manifest-addressed OCI object the Provenance_System holds — an Artifact_Bundle, a referrer (Signature / WORM_Receipt / Producer_Attestation_Referrer), or an oci-index — classified by Artifact_Type. A single *Content_Layer* ≈ an OSCAL `resource`; an *Artifact_Bundle* ≈ a set of them. "Evidence" is a reference *role* (OSCAL `relevant-evidence`, conferred by an observation citing the artifact), **not** an intrinsic kind — an artifact becomes evidence by being cited, so the store holds more than evidence.
 
 - **Governed by** — [Artifact Taxonomy Is Strictly Governed](specs/artifact-ingestion/spec.md#requirement-ingest-001-artifact-taxonomy-is-strictly-governed)
-- **See also** — [ADR-0006](../docs/adr/0006-artifact-genus-evidence-as-role.md) (nominal framing)
+- **See also** — [ADR-0023](../docs/adr/0023-artifact-genus-evidence-as-role.md) (nominal framing)
 
 ### Artifact_Kind
 
@@ -152,7 +152,7 @@ The producer-supplied controlled vocabulary classifying an artifact's type (valu
 The manifest-identity axis of an Artifact: `evidence | reference | signature | worm-receipt | oci-index`, discriminated physically by `config.mediaType`.
 
 - **Governed by** — [Artifact Taxonomy Is Strictly Governed](specs/artifact-ingestion/spec.md#requirement-ingest-001-artifact-taxonomy-is-strictly-governed)
-- **See also** — [ADR-0006](../docs/adr/0006-artifact-genus-evidence-as-role.md) (nominal framing)
+- **See also** — [ADR-0023](../docs/adr/0023-artifact-genus-evidence-as-role.md) (nominal framing)
 
 ### Assessment_Period
 
