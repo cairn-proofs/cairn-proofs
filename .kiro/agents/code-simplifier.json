@@ -22,7 +22,8 @@
     "read": {
       "deniedPaths": [
         "CLAUDE.md",
-        ".claude/**"
+        ".claude/**",
+        "openspec/changes/archive/**"
       ]
     },
     "write": {
@@ -142,7 +143,8 @@
         "capability": "fs_read",
         "match": [
           "CLAUDE.md",
-          ".claude/**"
+          ".claude/**",
+          "openspec/changes/archive/**"
         ],
         "effect": "deny"
       },
