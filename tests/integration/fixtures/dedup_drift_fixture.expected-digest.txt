@@ -30,4 +30,48 @@
 #
 # Lines starting with `#` and blank lines are ignored; the first non-comment
 # line is the pinned digest.
-sha256:7b623a0d98dd55178b180f0083cd19d1e9d0de42e6c5c27fa79e9bb6f21a276e
+#
+# History:
+#   2026-06-06  sha256:1afe4a0d...  first capture from cmh-alpha (pre-rename).
+#   2026-06-11  sha256:5ea0c984...  re-pinned after rename-artifact-store-reanchor-
+#               cairnproofs re-anchored the wire identity (media types + annotation
+#               keys cairnsecurity -> cairnproofs), which deterministically moved
+#               the digest. Surfaced only now because the suite had been silently
+#               skipping (fixed by fix-integration-repo-name-appname-prefix).
+#               Captured from one observed integ run; confirm with a second run
+#               per the two-runs convention (see the runbook).
+#   2026-06-11  sha256:4d862eae...  re-pinned for remove-artifact-kind-from-content-
+#               identity: artifact-kind left the content manifest (Config_Blob
+#               `bundleType` field dropped + the `artifact-kind` annotation
+#               dropped), so EVERY content digest deterministically moved. This is
+#               the BREAKING digest change called out in that change's design
+#               (Risk #2). Re-derived deterministically through the client-side
+#               `cairn push` content-manifest construction (the digest is computed
+#               client-side and is deployment-independent — see the runbook) under
+#               the pinned oras 1.3.2; the derivation was validated byte-exactly by
+#               reproducing the prior `sha256:5ea0c984...` pin from the old
+#               (bundleType + artifact-kind) manifest shape.
+#   2026-06-23  sha256:7b623a0d...  re-pinned for realign-actor-model-tenancy.
+#               The change re-models tenancy into {org-id}/{tenant-id}/{project-id}
+#               and renamed the DEFAULT integration project mvp-tenant ->
+#               mvp-project (disambiguating the previously-conflated tenant/project
+#               default). projectId is a Config_Blob + manifest-annotation field,
+#               so it IS in the content digest; renaming the default project
+#               therefore moved the digest deterministically. The new org/tenant
+#               identity rides the Producer_Attestation_Referrer claim and the
+#               ECR/S3 path ONLY -- verified NOT folded into the content manifest
+#               (push.py Config_Blob carries projectId only; org/tenant set on the
+#               claim, design D.5) -- so this is the documented "different project
+#               => different digest" re-pin, NOT a regression. Same fixed-bytes
+#               fixture; observed identically across two consecutive integ runs.
+#   2026-11-01  sha256:912af8f1...  re-pinned after the 2026-10-29 comment purge
+#               (predecessor commit 18411dc) edited the fixture's result
+#               `description` text ("Dedup/drift result"), removing the
+#               trailing "(attestation-referrer-identity guarantee)". The fixture
+#               JSON is a content layer, so its bytes moved the content digest
+#               deterministically. No manifest-building code changed: push.py,
+#               _oras.py, config_blob.py and annotations.py are byte-identical
+#               to the last 7b623a0d... run. The same purge also deleted this
+#               History section; it is restored above. Observed identically
+#               across two integ runs (one on main, one on a feature branch).
+sha256:912af8f146e4057989283fdbb9c1298fc927f7e8b728c89ed9278c5acd20dae6
