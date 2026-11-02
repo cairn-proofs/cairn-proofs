@@ -27,6 +27,8 @@ PROJECT_ID = "alpha-bank"
 REPO_NAME = f"artifact-{REGION_CODE}-{STAGE}/{ORG_ID}/{TENANT_ID}/{PROJECT_ID}"
 EVENT_BUS_NAME = "cairnproofs4af-artifact-cmh-alpha"
 ARCHIVE_BUCKET = "cairn-archive-cmh-alpha"
+RETENTION_PARAM = "/cairnproofs4af/alpha/retention/period-days"
+RETENTION_DAYS = 2555
 
 
 @dataclass(frozen=True)
@@ -307,7 +309,7 @@ def env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ARCHIVE_BUCKET", ARCHIVE_BUCKET)
     monkeypatch.setenv("EVENT_BUS_NAME", EVENT_BUS_NAME)
     monkeypatch.setenv("WORM_ENABLED", "false")
-    monkeypatch.setenv("WORM_RETENTION_YEARS", "7")
+    monkeypatch.setenv("RETENTION_PERIOD_PARAM", RETENTION_PARAM)
 
 
 @pytest.fixture
@@ -317,6 +319,9 @@ def s3_bucket(env: None, aws_region: str) -> Iterator[Any]:
         s3.create_bucket(
             Bucket=ARCHIVE_BUCKET,
             CreateBucketConfiguration={"LocationConstraint": aws_region},
+        )
+        boto3.client("ssm", region_name=aws_region).put_parameter(
+            Name=RETENTION_PARAM, Value=str(RETENTION_DAYS), Type="String"
         )
         yield s3
 
@@ -336,8 +341,10 @@ def reload_handler(s3_bucket: Any, monkeypatch: pytest.MonkeyPatch) -> Iterator[
     events_module._EVENTS_CLIENT = None
     referrers_module._ECR_CLIENT = None
     handler_module._S3 = None
+    handler_module._SSM = None
     handler = importlib.reload(handler_module)
     handler._S3 = None
+    handler._SSM = None
 
     fake_ecr = FakeEcr()
     recorder = EventRecorder()

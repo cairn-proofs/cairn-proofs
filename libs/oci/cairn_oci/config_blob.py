@@ -61,6 +61,10 @@ RESOURCE_MEDIA_TYPE: Final[str] = "application/vnd.cairnproofs.artifact.resource
 # NOTARY_SIGNATURE_MEDIA_TYPE above; the alias names that role explicitly.
 NOTARY_SIGNATURE_ARTIFACT_TYPE: Final[str] = NOTARY_SIGNATURE_MEDIA_TYPE
 WORM_RECEIPT_ARTIFACT_TYPE: Final[str] = "application/vnd.cairnproofs.artifact.worm-receipt.v1"
+# Annotation on the WORM_Receipt referrer manifest carrying the bundle's
+# Retain_Until in RFC 3339 UTC ([WORM-005]). Producer-writable like any ECR
+# annotation, so readers treat it as display / pre-filter only ([RETAIN-012]).
+RETAIN_UNTIL_ANNOTATION: Final[str] = "dev.cairnproofs.artifact.retain-until"
 
 
 class SkipReason(StrEnum):

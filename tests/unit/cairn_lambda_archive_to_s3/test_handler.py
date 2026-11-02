@@ -312,7 +312,6 @@ def test_worm_enabled_branch_writes_object_lock_headers(
     bundle = build_bundle()
     _seed(handler, bundle)
     monkeypatch.setattr(handler, "WORM_ENABLED", True)
-    monkeypatch.setattr(handler, "RETENTION_YEARS", 7)
 
     from unittest.mock import MagicMock
 

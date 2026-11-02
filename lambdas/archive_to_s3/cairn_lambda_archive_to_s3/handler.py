@@ -11,6 +11,16 @@ WORM_Enabled is read from the ``WORM_ENABLED`` env var (default
 ``false``). The receipt schema is identical either way; the
 WORM_Enabled=true branch adds Object Lock headers to the S3 PutObjects.
 
+Retention ([RETAIN-003], [RETAIN-007]): the retention period in days is read
+at runtime from the stack-written SSM parameter named by
+``RETENTION_PERIOD_PARAM`` (by name, no label or version selector). A missing,
+non-integer, or out-of-bounds value fails the archive with
+``artifact.archive-failed`` before any S3 write. Retain_Until is the archive
+timestamp plus that many days, from ONE UTC clock reading, in both
+``WORM_Enabled`` modes; it is recorded in the receipt body as ``retainUntil``,
+as the receipt referrer annotation ``dev.cairnproofs.artifact.retain-until``,
+and (WORM only) as every object's ``ObjectLockRetainUntilDate``.
+
 Idempotency ([PIPELINE-007]): if the S3 manifest object already exists AND a
 WORM_Receipt referrer is attached in ECR, short-circuit and re-emit
 ``artifact.archived``.
@@ -21,8 +31,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import boto3
@@ -71,7 +82,12 @@ STAGE = os.environ.get("STAGE") or os.environ.get("CAIRN_STAGE", "")
 REGION_CODE = os.environ.get("REGION_CODE") or os.environ.get("CAIRN_REGION_CODE", "")
 ARCHIVE_BUCKET = os.environ.get("ARCHIVE_BUCKET", "")
 WORM_ENABLED = os.environ.get("WORM_ENABLED", "false").lower() == "true"
-RETENTION_YEARS = int(os.environ.get("WORM_RETENTION_YEARS", "7"))
+RETENTION_PERIOD_PARAM = os.environ.get("RETENTION_PERIOD_PARAM", "")
+
+# [RETAIN-007] retention-period bounds, in days (1 day to 99 x 365).
+RETENTION_PERIOD_MIN_DAYS = 1
+RETENTION_PERIOD_MAX_DAYS = 36135
+_WHOLE_NUMBER = re.compile(r"[0-9]+")
 
 if STAGE:
     os.environ.setdefault("CAIRN_STAGE", STAGE)
@@ -79,6 +95,7 @@ if REGION_CODE:
     os.environ.setdefault("CAIRN_REGION_CODE", REGION_CODE)
 
 _S3: Any = None
+_SSM: Any = None
 
 
 def _s3() -> Any:
@@ -86,6 +103,60 @@ def _s3() -> Any:
     if _S3 is None:
         _S3 = boto3.client("s3")
     return _S3
+
+
+def _ssm() -> Any:
+    global _SSM
+    if _SSM is None:
+        _SSM = boto3.client("ssm")
+    return _SSM
+
+
+def _now() -> datetime:
+    """The archive stage's single UTC clock reading (patched by tests)."""
+    return datetime.now(UTC)
+
+
+class RetentionSettingError(RuntimeError):
+    """The runtime retention-period setting is missing or invalid ([RETAIN-007.03])."""
+
+
+def _read_retention_period_days() -> int:
+    """Read and validate the retention period from SSM ([RETAIN-007.03]).
+
+    Reads the parameter by exact name — no ``:label`` or ``:version``
+    selector — so the value is always the parameter's current version.
+    Raises :class:`RetentionSettingError` when the parameter is unconfigured,
+    absent, not a whole number, or outside 1..36135. Any other SSM error
+    (throttling, access denied) propagates unchanged so the invocation fails
+    and is retried, never defaulted.
+    """
+    name = RETENTION_PERIOD_PARAM
+    if not name:
+        raise RetentionSettingError("RETENTION_PERIOD_PARAM env var is not set")
+    try:
+        response = _ssm().get_parameter(Name=name)
+    except ClientError as e:
+        if e.response.get("Error", {}).get("Code") == "ParameterNotFound":
+            raise RetentionSettingError(f"retention-period parameter {name!r} is missing") from e
+        raise
+    raw = ((response.get("Parameter") or {}).get("Value") or "").strip()
+    if not _WHOLE_NUMBER.fullmatch(raw):
+        raise RetentionSettingError(
+            f"retention-period parameter {name!r} is not a whole number of days: {raw!r}"
+        )
+    days = int(raw)
+    if not RETENTION_PERIOD_MIN_DAYS <= days <= RETENTION_PERIOD_MAX_DAYS:
+        raise RetentionSettingError(
+            f"retention-period parameter {name!r} is {days} days, outside "
+            f"{RETENTION_PERIOD_MIN_DAYS} to {RETENTION_PERIOD_MAX_DAYS}"
+        )
+    return days
+
+
+def format_retain_until(value: datetime) -> str:
+    """RFC 3339 UTC, second precision: ``YYYY-MM-DDTHH:MM:SSZ``."""
+    return value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 metrics = Metrics(
@@ -130,12 +201,12 @@ def _s3_key_prefix(
     return f"{org_id}/{tenant_id}/{project_id}/{manifest_digest}/"
 
 
-def _put_object(*, key: str, body: bytes, content_type: str) -> None:
+def _put_object(*, key: str, body: bytes, content_type: str, retain_until: datetime) -> None:
     """PutObject with WORM headers when enabled.
 
-    Object Lock retention is keyed off the archive timestamp; we use the
-    same `archived_at` value for all objects in a bundle so they expire
-    together.
+    ``retain_until`` is the bundle's single Retain_Until ([RETAIN-003]); every
+    object of a bundle carries the same value so they expire together and the
+    Object Lock date equals the receipt's ``retainUntil`` ([RETAIN-003.02]).
     """
     kwargs: dict[str, Any] = {
         "Bucket": ARCHIVE_BUCKET,
@@ -144,7 +215,6 @@ def _put_object(*, key: str, body: bytes, content_type: str) -> None:
         "ContentType": content_type,
     }
     if WORM_ENABLED:
-        retain_until = datetime.now(UTC).replace(year=datetime.now(UTC).year + RETENTION_YEARS)
         kwargs["ObjectLockMode"] = "COMPLIANCE"
         kwargs["ObjectLockRetainUntilDate"] = retain_until
     _s3().put_object(**kwargs)
@@ -168,6 +238,7 @@ def _archive_blob(
     media_type: str,
     key_prefix: str,
     artifact: str,
+    retain_until: datetime,
     declared_size: int | None = None,
 ) -> None:
     """Fetch one OCI blob (config or layer) from ECR, verify its digest, write to S3.
@@ -225,6 +296,7 @@ def _archive_blob(
         key=f"{key_prefix}blobs/{blob_digest.replace(':', '/')}",
         body=blob,
         content_type=media_type,
+        retain_until=retain_until,
     )
 
 
@@ -237,6 +309,7 @@ def _archive_blobs(
     manifest_media_type: str,
     image_digest: str,
     key_prefix: str,
+    retain_until: datetime,
 ) -> tuple[int, list[str]]:
     """Pull manifest + every layer from ECR, verify digests, write to S3.
 
@@ -258,6 +331,7 @@ def _archive_blobs(
         key=f"{key_prefix}manifest.json",
         body=manifest_bytes,
         content_type=manifest_media_type,
+        retain_until=retain_until,
     )
 
     digests: list[str] = [image_digest]
@@ -270,6 +344,7 @@ def _archive_blobs(
         media_type=manifest.config.media_type,
         key_prefix=key_prefix,
         artifact="config",
+        retain_until=retain_until,
         declared_size=manifest.config.size,
     )
     digests.append(manifest.config.digest)
@@ -283,6 +358,7 @@ def _archive_blobs(
             media_type=layer.media_type,
             key_prefix=key_prefix,
             artifact=f"layer[{layer.digest}]",
+            retain_until=retain_until,
             declared_size=layer.size,
         )
         digests.append(layer.digest)
@@ -296,6 +372,7 @@ def _archive_attestation(
     repository_name: str,
     attestation_digest: str,
     key_prefix: str,
+    retain_until: datetime,
 ) -> None:
     """Fetch the Producer_Attestation_Referrer by digest, verify, write under the prefix.
 
@@ -325,6 +402,7 @@ def _archive_attestation(
         key=f"{key_prefix}attestation.json",
         body=att_bytes,
         content_type=att_media_type,
+        retain_until=retain_until,
     )
 
     att_manifest = OciManifest.model_validate(att_dict)
@@ -335,6 +413,7 @@ def _archive_attestation(
         media_type=att_manifest.config.media_type,
         key_prefix=key_prefix,
         artifact="attestation-config",
+        retain_until=retain_until,
     )
     for layer in att_manifest.layers:
         _archive_blob(
@@ -344,6 +423,7 @@ def _archive_attestation(
             media_type=layer.media_type,
             key_prefix=key_prefix,
             artifact=f"attestation-layer[{layer.digest}]",
+            retain_until=retain_until,
         )
 
 
@@ -355,6 +435,7 @@ def _attach_receipt_referrer(
     subject_digest: str,
     subject_size: int,
     subject_media_type: str,
+    retain_until: str,
 ) -> str:
     """Push receipt body + referrer artifact manifest to ECR.
 
@@ -385,6 +466,7 @@ def _attach_receipt_referrer(
         subject_digest=subject_digest,
         subject_size=subject_size,
         subject_media_type=subject_media_type,
+        retain_until=retain_until,
     )
     return put_referrer_artifact(
         registry_id=registry_id,
@@ -516,7 +598,32 @@ def _handle(event: dict[str, Any]) -> dict[str, Any]:
             emit_archived(payload)
             return payload
 
-    # Fresh archive.
+    # Fresh archive. Resolve retention FIRST: an invalid setting must fail the
+    # archive before any S3 object or receipt is written ([RETAIN-007.03]).
+    try:
+        retention_days = _read_retention_period_days()
+    except RetentionSettingError as e:
+        LOG.error("invalid retention-period setting", extra={"reason": str(e)})
+        emit_archive_failed(
+            {
+                "manifestDigest": manifest_digest,
+                "repositoryName": repository_name,
+                "artifact": "retention-period-setting",
+                "invalidSetting": RETENTION_PERIOD_PARAM or "RETENTION_PERIOD_PARAM",
+                "reason": str(e),
+                "configBlob": config_blob,
+                "attestationDigest": attestation_digest,
+                "attestation": attestation,
+            }
+        )
+        raise
+    # ONE clock reading for the whole bundle ([RETAIN-003]): the archive
+    # timestamp, and Retain_Until = timestamp + period days. Second precision so
+    # the receipt, the annotation, and every Object Lock date are equal.
+    archived_at_dt = _now().astimezone(UTC).replace(microsecond=0)
+    retain_until_dt = archived_at_dt + timedelta(days=retention_days)
+    retain_until = format_retain_until(retain_until_dt)
+
     manifest_dict, manifest_raw, manifest_media_type = fetch_manifest(
         registry_id=registry_id,
         repository_name=repository_name,
@@ -533,6 +640,7 @@ def _handle(event: dict[str, Any]) -> dict[str, Any]:
             manifest_media_type=manifest_media_type,
             image_digest=manifest_digest,
             key_prefix=key_prefix,
+            retain_until=retain_until_dt,
         )
         # Archive the Producer_Attestation_Referrer as a second object under the SAME
         # content-digest prefix. Inside the try so a claim-object digest
@@ -543,6 +651,7 @@ def _handle(event: dict[str, Any]) -> dict[str, Any]:
                 repository_name=repository_name,
                 attestation_digest=attestation_digest,
                 key_prefix=key_prefix,
+                retain_until=retain_until_dt,
             )
     except IntegrityError as e:
         LOG.error(
@@ -570,7 +679,7 @@ def _handle(event: dict[str, Any]) -> dict[str, Any]:
         # (the archive-failed event is the canonical alarm signal).
         raise
 
-    archived_at = datetime.now(UTC).isoformat()
+    archived_at = archived_at_dt.isoformat()
     receipt_body = build_receipt(
         manifest_digest=manifest_digest,
         archived_at=archived_at,
@@ -580,6 +689,7 @@ def _handle(event: dict[str, Any]) -> dict[str, Any]:
         worm_enabled=WORM_ENABLED,
         blob_count=blob_count,
         integrity_verified=True,
+        retain_until=retain_until,
     )
     # Write a copy of the receipt to S3 too (the bundle stays "self-contained
     # without ECR" per [WORM-007] even though the canonical receipt is the ECR
@@ -588,6 +698,7 @@ def _handle(event: dict[str, Any]) -> dict[str, Any]:
         key=f"{key_prefix}worm-receipt.json",
         body=receipt_body,
         content_type="application/json",
+        retain_until=retain_until_dt,
     )
 
     subject_size = len(manifest_raw.encode("utf-8"))
@@ -598,6 +709,7 @@ def _handle(event: dict[str, Any]) -> dict[str, Any]:
         subject_digest=manifest_digest,
         subject_size=subject_size,
         subject_media_type=manifest_media_type,
+        retain_until=retain_until,
     )
 
     # Resource-as-referrer: when the signed event carries an OSCAL resource
@@ -643,6 +755,7 @@ def _handle(event: dict[str, Any]) -> dict[str, Any]:
         "wormReceiptType": RECEIPT_ARTIFACT_TYPE,
         "wormEnabled": WORM_ENABLED,
         "archivedAt": archived_at,
+        "retainUntil": retain_until,
         "blobCount": blob_count,
         "idempotentShortCircuit": False,
         "configBlob": config_blob,

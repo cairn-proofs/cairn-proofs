@@ -32,6 +32,7 @@ The script is idempotent. Re-runs without source changes are no-ops at the Cloud
 | `gpg` 2.2+ | Build-time signature verification of the AWS Signer plugin | `brew install gnupg` (macOS) / `apt-get install gnupg` (Debian) |
 | `flock` (macOS only) | Concurrency-safe build scripts. Without it the scripts warn and rely on downstream SHA verification | `brew install flock` |
 | A subscriber email address | The stack subscribes one email to the alarm SNS topic | Set via CDK context `notificationEmail`. When unset (the default), the stack creates no email subscription. |
+| `CAIRN_PRUNER_PRINCIPAL_ARNS` in `.env` | The designated principals that may assume the pruner role ([ACCESS-007]). Synth fails when it is empty or holds anything other than an IAM ARN in the deployment account | Comma-separated IAM user ARNs; see [Pruning](#pruning-cairn-prune) |
 
 The mise-loaded `.env` supplies the target account and region at deploy time (`CAIRN_ALPHA_ACCOUNT` / `CAIRN_ALPHA_REGION`). Copy `.env.example` to `.env` and fill them in. The region must be one registered in `cdk/lib/region-codes.ts`. That registry derives the `{regionCode}` airport-code segment of the `Deployment_Qualifier`. An unregistered region (or an unset account/region) fails fast at synth. Each deployment is still pinned to a single region for its lifetime (changing region means standing up a new deployment).
 
@@ -81,6 +82,39 @@ aws cloudtrail get-event-selectors --trail-name <arn>
 
 At least one trail must have `IsLogging=true` AND `IncludeManagementEvents=true` (classic selectors) or an `eventCategory=Management` advanced selector. If no trail qualifies, provision one via the AWS console or a separate IaC pipeline before deploying.
 
+**Delete data events ([ACCESS-004.02]).** The active trails must also record, as data events, object deletes on the archive bucket and item deletes on the `Metadata_Index` and `ControlClaims` tables. A management-only trail does not see an S3 object-version delete or a DynamoDB `DeleteItem`, which are exactly the operations `cairn prune` performs. `deploy.sh` checks this after synth (it needs the stack name) with `cdk/scripts/check_cloudtrail_data_events.py`, and fails with a list of the missing selectors. Set the selectors before the deploy. `put-event-selectors` REPLACES every selector on the trail, so the command below keeps the management-event selector:
+
+```bash
+aws cloudtrail put-event-selectors --trail-name <arn> --advanced-event-selectors '[
+  {"Name": "Management events",
+   "FieldSelectors": [{"Field": "eventCategory", "Equals": ["Management"]}]},
+  {"Name": "Cairn archive deletes",
+   "FieldSelectors": [
+     {"Field": "eventCategory", "Equals": ["Data"]},
+     {"Field": "resources.type", "Equals": ["AWS::S3::Object"]},
+     {"Field": "readOnly", "Equals": ["false"]},
+     {"Field": "resources.ARN", "StartsWith": ["arn:aws:s3:::{appName}-artifact-archive-cmh-alpha/"]}]},
+  {"Name": "Cairn index deletes",
+   "FieldSelectors": [
+     {"Field": "eventCategory", "Equals": ["Data"]},
+     {"Field": "resources.type", "Equals": ["AWS::DynamoDB::Table"]},
+     {"Field": "readOnly", "Equals": ["false"]},
+     {"Field": "resources.ARN", "StartsWith": ["arn:aws:dynamodb:us-east-2:123456789012:table/{appName}-cmh-alpha-"]}]}
+]'
+```
+
+The tables are auto-named `{stackName}-{logicalId}-{suffix}`, so the `table/{appName}-cmh-alpha-` prefix covers both. Merge these selectors with any your trail already carries rather than dropping them. The checker accepts a selector only when every field it sets provably admits the delete; a selector with a `NotStartsWith`/`EndsWith` operator or an unknown field does not count. An `eventName` field on the index selector must admit `DeleteItem`, `BatchWriteItem`, and `TransactWriteItems`, because CloudTrail logs an item delete under the name of the API that made it. Run the check by hand with:
+
+```bash
+aws cloudtrail get-event-selectors --trail-name <arn> --output json \
+  | jq -s . \
+  | python3 cdk/scripts/check_cloudtrail_data_events.py \
+      --bucket {appName}-artifact-archive-cmh-alpha \
+      --table-arn-prefix arn:aws:dynamodb:us-east-2:123456789012:table/{appName}-cmh-alpha-
+```
+
+**Organization trails.** A trail managed from the organization's management account can be stopped or reconfigured from that account, and the deployment account's [RETAIN-013] trail-change alarm never sees those events. Name the person or team that watches organization-trail changes in the management account before relying on an organization trail for this deployment, and record them in the deployment's ownership notes.
+
 **Override (non-production only):** if you must deploy to an account without CloudTrail coverage (e.g., a personal sandbox), invoke `deploy.sh` with both override flags set:
 
 ```bash
@@ -101,12 +135,13 @@ After the three bootstrap steps above are complete:
 
 The script:
 
-1. Runs the CloudTrail preflight (above).
+1. Runs the CloudTrail management-event preflight (above).
 2. Builds the Notation layer if `lambda-layers/notation/build/notation-layer.zip` is absent.
 3. Bundles each Lambda package into `lambda-bundles/<name>/` via `cdk/scripts/build-lambdas.sh`.
 4. Runs `npm ci --silent` against `cdk/package-lock.json`.
 5. Runs `npx cdk synth --quiet` (typecheck + CloudFormation template generation).
-6. Runs `npx cdk deploy --all --require-approval never` with the preflight result threaded through as a CDK context value.
+6. Runs the CloudTrail delete data-event preflight (above) against the synthesized stack name.
+7. Runs `npx cdk deploy --all --require-approval never` with the preflight result threaded through as a CDK context value.
 
 First-deploy wall-clock is dominated by the CFN stack creation pass: typically 10-15 minutes for the ~80 resources in the stack. Subsequent change-set deploys are much faster.
 
@@ -278,15 +313,66 @@ KEY_ID=$(aws kms describe-key --key-id alias/{appName}-service-cmh-alpha \
 aws kms schedule-key-deletion --key-id "${KEY_ID}" --pending-window-in-days 7
 ```
 
-The ECR repository also has `RETAIN` removal policy plus `emptyOnDelete: false`, so CFN leaves it behind. Delete it manually if you need a clean slate:
-
-```bash
-aws ecr delete-repository \
-  --repository-name "{appName}-artifact-cmh-alpha/mvp-tenant" \
-  --force
-```
+The stack-owned repository policy ([ACCESS-010]) denies `ecr:DeleteRepository` to every principal except the stack's CloudFormation execution role, so a manual `aws ecr delete-repository` fails with `AccessDenied`. On this non-production stack the repository is `DESTROY` + `emptyOnDelete`, and `cdk destroy` removes it through the execution role. If a repository is left behind, redeploy and destroy the stack again rather than editing its policy by hand.
 
 Never run any of this against a production deployment. The retain policies exist precisely to make "delete the stack" a recoverable action.
+
+## Retention settings
+
+The stack props `retentionPeriodDays` (default 2,555 = 7 years, bounds 1–36,135) and `unarchivedManifestWindowDays` (default 30, bounds 1–365) are checked at synth ([RETAIN-007]). Override them with `cdk --context retentionPeriodDays=N` / `unarchivedManifestWindowDays=N` (pass them through `deploy.sh`). The stack publishes both to SSM under `/{appName}/alpha/retention/`; archive-to-s3 reads the period by name on every archive and fails the archive closed when it is missing or invalid. Only the stack deployment writes the parameter; the Operator is denied every write, and any write raises a [RETAIN-013] alarm.
+
+**Lowering the retention period on a production stack requires a recorded acknowledgement before the deploy.** A shorter period shortens Retain_Until (and, under `WORM_Enabled=true`, the Object Lock date) of every bundle archived afterwards, and `cairn prune` can then delete those bundles sooner. Bundles already archived keep the Retain_Until written in their receipts. Get written sign-off from the deployment's retention owner naming the old and new values and the reason, attach it to the change record, then deploy. A non-production stack may use short periods (for example `retentionPeriodDays=1`) to exercise expiry.
+
+## ECR image quota
+
+Nothing expires images automatically ([RETAIN-006]), so a repository's image count only grows until an operator prunes. ECR's "Images per repository" quota (service-quotas code `L-03A36CE1`, default 100,000 in `us-east-2`) caps it; a push past the quota fails. Check the current value and the repository's image count:
+
+```bash
+aws service-quotas get-service-quota --service-code ecr --quota-code L-03A36CE1 --region us-east-2
+aws ecr list-images --repository-name "{appName}-artifact-cmh-alpha/mvp-org/mvp-tenant/mvp-project" \
+  --region us-east-2 --query 'length(imageIds)'
+```
+
+Request an increase well before the count reaches the quota:
+
+```bash
+aws service-quotas request-service-quota-increase --service-code ecr \
+  --quota-code L-03A36CE1 --desired-value <N> --region us-east-2
+```
+
+Run `cairn prune` in report mode periodically to see how many candidates (expired bundles and junk manifests) could be removed.
+
+## Pruning (`cairn prune`)
+
+`cairn prune` is the only sanctioned path that deletes artifacts ([RETAIN-005]). Report mode needs only read access:
+
+```bash
+cairn prune --target mvp-org/mvp-tenant/mvp-project
+```
+
+Deleting requires a session of the project's pruner role `{appName}-pruner-cmh-alpha` ([ACCESS-007]). Its trust policy admits only the IAM users in `CAIRN_PRUNER_PRINCIPAL_ARNS` (synth rejects role ARNs), requires MFA, requires `sts:SourceIdentity` equal to the caller's IAM user name, and caps sessions at one hour.
+
+Run delete mode with your IAM user's own credentials. `cairn prune` makes the `sts:AssumeRole` call itself: it prompts for the MFA code, then sends your MFA device ARN, the code, and `SourceIdentity` set to your IAM user name. Do not use a profile with `role_arn`: botocore's profile assume-role provider does not send a source identity, so the trust policy denies it.
+
+```bash
+AWS_PROFILE=<your IAM-user profile> cairn prune --target mvp-org/mvp-tenant/mvp-project \
+  --digest sha256:<64-hex> [--digest sha256:<64-hex> ...]
+# MFA code for arn:aws:iam::123456789012:mfa/<your-iam-user>: ******
+```
+
+The MFA device defaults to `arn:aws:iam::<account>:mfa/<your-iam-user>`. Pass `--mfa-serial <arn>` when your device has a different name. Credentials that already are a pruner-role session (for example from a `credential_process` helper that sets the source identity) are used as they are, with no prompt.
+
+The command refuses to delete unless `sts:GetCallerIdentity` is a session of the pruner role, refuses an item when the session has less than five minutes left, re-checks every named digest immediately before its first delete, and writes an audit record to `/{appName}/cmh-alpha/prune-audit` before each delete step and after each outcome. Every image delete also raises a [RETAIN-013] alarm.
+
+**Federated pruners.** Only IAM-user credentials can obtain a pruner session. A federated (IdP / SSO) principal has no `aws:username` and no IAM MFA device, so it fails the trust conditions. Do not relax the `aws:MultiFactorAuthPresent` or `sts:SourceIdentity` condition to admit one. Using a federated pruner needs a recorded design decision that substitutes IdP-enforced MFA and an IdP-supplied source identity, made through the OpenSpec flow.
+
+**Integration-test cleanup.** On this non-production stack the integration harness deletes its test images through `{appName}-integ-cleanup-cmh-alpha` (ARN in SSM `/{appName}/alpha/integration/cleanup-role-arn`). The role trusts only the principals in `CAIRN_INTEG_CLEANUP_PRINCIPAL_ARNS` (IAM user or role ARNs in the account), or the designated pruners when that variable is unset. It never trusts the account root. Run the integration suite as one of those principals; it also needs an identity-policy `sts:AssumeRole` grant on the role. A production stack has no such role.
+
+**Non-production teardown.** The repository uses `emptyOnDelete`, so `cdk destroy` deletes the remaining images as the CloudFormation execution role. On a non-production stack that role is an exception to the image-delete deny of [ACCESS-010]. A production stack retains its repository and has no such exception.
+
+## Rollback warning
+
+Rolling the stack back past this change restores the age-based ECR lifecycle rule that expires untagged images after 90 days. Every referrer (signatures, WORM_Receipt, Producer_Attestation_Referrer) is untagged, so that rule would reap them and every bundle older than 90 days would stop verifying. Roll back only while no bundle has been in the repository for 90 days. The Notation `--force-referrers-tag=false` fix must ship after this change, never before: until this change is deployed, the tagged referrers-schema index is the only thing that protects signatures from the 90-day rule.
 
 ## Troubleshooting
 

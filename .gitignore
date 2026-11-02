@@ -10,6 +10,7 @@ node_modules/
 cdk.out/
 # Shared cloud-assembly dir for jest synth (see cdk/test/*.test.ts OUTDIR)
 cdk.out.test/
+cdk.out.test-retention/
 cdk/**/*.js
 !cdk/jest.config.js
 cdk/**/*.d.ts

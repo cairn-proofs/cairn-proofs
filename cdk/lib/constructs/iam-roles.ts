@@ -1,10 +1,67 @@
 import { IKey } from 'aws-cdk-lib/aws-kms';
 import { ITable } from 'aws-cdk-lib/aws-dynamodb';
+import { IRule } from 'aws-cdk-lib/aws-events';
+import { ILogGroup } from 'aws-cdk-lib/aws-logs';
 import { IBucket } from 'aws-cdk-lib/aws-s3';
-import { Effect, ManagedPolicy, PolicyDocument, PolicyStatement } from 'aws-cdk-lib/aws-iam';
-import { Stack } from 'aws-cdk-lib';
+import { ITopic } from 'aws-cdk-lib/aws-sns';
+import {
+  ArnPrincipal,
+  CompositePrincipal,
+  Effect,
+  ManagedPolicy,
+  PolicyDocument,
+  PolicyStatement,
+  PrincipalBase,
+  PrincipalPolicyFragment,
+  Role,
+} from 'aws-cdk-lib/aws-iam';
+import { Duration, Stack } from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import { Naming } from '../naming';
+
+/**
+ * Trust conditions every pruner assume-role call must satisfy
+ * (access-control [ACCESS-007]): MFA present (a `Bool` match, never
+ * `BoolIfExists`), and a source identity equal to the caller's own IAM user
+ * name, so every pruner session is attributable to one person in CloudTrail.
+ */
+export const PRUNER_TRUST_CONDITIONS = {
+  Bool: { 'aws:MultiFactorAuthPresent': 'true' },
+  StringEquals: { 'sts:SourceIdentity': '${aws:username}' },
+};
+
+/**
+ * Trust principal for the pruner role. It admits only the designated principal
+ * ARNs, and it grants `sts:SetSourceIdentity` alongside `sts:AssumeRole` in one
+ * conditioned statement, which the stock CDK principals cannot express.
+ */
+class DesignatedPrunerPrincipals extends PrincipalBase {
+  constructor(private readonly arns: string[]) {
+    super();
+  }
+
+  get policyFragment(): PrincipalPolicyFragment {
+    return new PrincipalPolicyFragment({ AWS: this.arns }, PRUNER_TRUST_CONDITIONS);
+  }
+
+  addToAssumeRolePolicy(doc: PolicyDocument): void {
+    doc.addStatements(
+      new PolicyStatement({
+        actions: ['sts:AssumeRole', 'sts:SetSourceIdentity'],
+        principals: this.arns.map((arn) => new ArnPrincipal(arn)),
+        conditions: PRUNER_TRUST_CONDITIONS,
+      }),
+    );
+  }
+
+  toString(): string {
+    return `DesignatedPrunerPrincipals(${this.arns.join(',')})`;
+  }
+
+  dedupeString(): string | undefined {
+    return undefined;
+  }
+}
 
 export interface IamPolicyTemplatesProps {
   readonly naming: Naming;
@@ -30,6 +87,36 @@ export interface IamPolicyTemplatesProps {
    * scope `ssm:PutParameter` to exactly that parameter (Threat #9).
    */
   readonly stage: string;
+  /** ControlClaims table — the pruner deletes a pruned bundle's rows here. */
+  readonly controlsTable: ITable;
+  /** Stack-owned prune audit log group ([RETAIN-011]); the pruner may only append. */
+  readonly pruneAuditLogGroup: ILogGroup;
+  /** SSM path of the retention-period parameter ([RETAIN-007]). */
+  readonly retentionParamName: string;
+  /** SSM path of the unarchived-manifest-window parameter ([RETAIN-007], [RETAIN-008]). */
+  readonly windowParamName: string;
+  /** Physical name of the archive-to-s3 Lambda (Operator DENY on its configuration). */
+  readonly archiveFunctionName: string;
+  /** The [RETAIN-013] alarm rules; the Operator may not change or disable them. */
+  readonly retentionAlarmRules: IRule[];
+  /** The notification topic the [RETAIN-013] rules publish to. */
+  readonly alarmTopic: ITopic;
+  /**
+   * IAM user ARNs, in the deployment account, that may assume the pruner role
+   * ([ACCESS-007]). Must be non-empty.
+   */
+  readonly prunerPrincipalArns: string[];
+  /**
+   * IAM user or role ARNs, in the deployment account, that may assume the
+   * non-production integration-test cleanup role ([ACCESS-010] item 1). Must
+   * be non-empty when `isProd` is false.
+   */
+  readonly integCleanupPrincipalArns: string[];
+  /**
+   * Non-production gate: the integration-test cleanup role is synthesized only
+   * when this is `false` ([ACCESS-010] item 1).
+   */
+  readonly isProd: boolean;
 }
 
 /**
@@ -77,12 +164,43 @@ export class IamPolicyTemplates extends Construct {
   readonly operatorPolicy: ManagedPolicy;
   readonly reviewerSignoffPolicy: ManagedPolicy;
   readonly trustPolicyWriteProtectPolicy: ManagedPolicy;
+  /** Per-project pruner role ([ACCESS-007], [ACCESS-008]). */
+  readonly prunerRole: Role;
+  /**
+   * Non-production integration-test cleanup role ([ACCESS-010] item 1).
+   * `undefined` on a production (`isProd=true`) stack.
+   */
+  readonly integrationCleanupRole?: Role;
 
   constructor(scope: Construct, id: string, props: IamPolicyTemplatesProps) {
     super(scope, id);
 
-    const { naming, orgId, tenantId, projectId, archiveBucket, metadataTable, kmsKey, reviewerSignoffProfileArn, stage } =
-      props;
+    const {
+      naming,
+      orgId,
+      tenantId,
+      projectId,
+      archiveBucket,
+      metadataTable,
+      controlsTable,
+      kmsKey,
+      reviewerSignoffProfileArn,
+      stage,
+      pruneAuditLogGroup,
+      retentionParamName,
+      windowParamName,
+      archiveFunctionName,
+      retentionAlarmRules,
+      alarmTopic,
+      prunerPrincipalArns,
+      integCleanupPrincipalArns,
+      isProd,
+    } = props;
+    if (prunerPrincipalArns.length === 0) {
+      throw new Error(
+        'prunerPrincipalArns must name at least one designated pruner principal ([ACCESS-007]).',
+      );
+    }
     const account = Stack.of(this).account;
     const region = Stack.of(this).region;
     const partition = Stack.of(this).partition;
@@ -295,6 +413,12 @@ export class IamPolicyTemplates extends Construct {
     //      production (`WORM_Enabled=true`) adds Object Lock behind
     //      it.
     const operatorEcrNamespaceArn = `arn:${partition}:ecr:${region}:${account}:repository/${artifactNamespace}/*`;
+    const retentionParamArn = `arn:${partition}:ssm:${region}:${account}:parameter${retentionParamName}`;
+    const windowParamArn = `arn:${partition}:ssm:${region}:${account}:parameter${windowParamName}`;
+    const archiveFunctionArn = `arn:${partition}:lambda:${region}:${account}:function:${archiveFunctionName}`;
+    // Every CloudWatch alarm this deployment owns carries the `{appName}-`
+    // physical-name prefix (Naming.nameFor).
+    const deploymentAlarmArnPattern = `arn:${partition}:cloudwatch:${region}:${account}:alarm:${naming.appName}-*`;
     this.operatorPolicy = new ManagedPolicy(this, 'OperatorPolicy', {
       managedPolicyName: naming.nameFor('operator'),
       description:
@@ -355,14 +479,12 @@ export class IamPolicyTemplates extends Construct {
           }),
           new PolicyStatement({
             // Substrate management mutations needed to OPERATE (never to write
-            // evidence). Scoped to this deployment's ECR namespace; lifecycle /
-            // repository-policy management is operational, manifest content is
-            // not (PutImage is absent here and DENIED below).
+            // evidence). Scoped to this deployment's ECR namespace. Lifecycle
+            // and repository-policy changes are NOT here: they are retention
+            // controls, DENIED below ([ACCESS-009] item 1).
             sid: 'OperatorEcrSubstrateManagement',
             effect: Effect.ALLOW,
             actions: [
-              'ecr:PutLifecyclePolicy',
-              'ecr:SetRepositoryPolicy',
               'ecr:PutImageScanningConfiguration',
               'ecr:TagResource',
               'ecr:UntagResource',
@@ -429,6 +551,87 @@ export class IamPolicyTemplates extends Construct {
             ],
             resources: ['*'],
           }),
+          // ── Retention-configuration guardrail ([ACCESS-009]) ──────────────
+          // Object Lock honors whatever date the archive stage writes, and the
+          // pruner trusts the receipt the archive stage writes, so every knob
+          // that sets, shortens, or hides retention is out of the Operator's
+          // reach. Only the stack deployment changes them, and each change
+          // raises a [RETAIN-013] alarm.
+          new PolicyStatement({
+            // [ACCESS-009] item 1: lifecycle and repository policy.
+            sid: 'OperatorDenyEcrRetentionConfig',
+            effect: Effect.DENY,
+            actions: [
+              'ecr:PutLifecyclePolicy',
+              'ecr:DeleteLifecyclePolicy',
+              'ecr:SetRepositoryPolicy',
+              'ecr:DeleteRepositoryPolicy',
+            ],
+            resources: [operatorEcrNamespaceArn],
+          }),
+          new PolicyStatement({
+            // [ACCESS-009] item 2: archive bucket lifecycle, Object Lock, legal hold.
+            sid: 'OperatorDenyArchiveRetentionConfig',
+            effect: Effect.DENY,
+            actions: [
+              's3:PutLifecycleConfiguration',
+              's3:PutBucketObjectLockConfiguration',
+              's3:PutObjectLegalHold',
+            ],
+            resources: [archiveBucket.bucketArn, archiveBucket.arnForObjects('*')],
+          }),
+          new PolicyStatement({
+            // [ACCESS-009] item 3: the retention-period and
+            // unarchived-manifest-window parameters.
+            sid: 'OperatorDenyRetentionParameterWrite',
+            effect: Effect.DENY,
+            actions: ['ssm:PutParameter', 'ssm:LabelParameterVersion', 'ssm:DeleteParameter'],
+            resources: [retentionParamArn, windowParamArn],
+          }),
+          new PolicyStatement({
+            // [ACCESS-009] item 4: the archive stage's configuration (it carries
+            // the retention-parameter name).
+            sid: 'OperatorDenyArchiveStageConfig',
+            effect: Effect.DENY,
+            actions: ['lambda:UpdateFunctionConfiguration'],
+            resources: [archiveFunctionArn],
+          }),
+          new PolicyStatement({
+            // [ACCESS-009] item 5: the [RETAIN-013] alarm rules.
+            sid: 'OperatorDenyRetentionAlarmRules',
+            effect: Effect.DENY,
+            actions: [
+              'events:PutRule',
+              'events:PutTargets',
+              'events:RemoveTargets',
+              'events:DisableRule',
+              'events:DeleteRule',
+            ],
+            resources: retentionAlarmRules.map((r) => r.ruleArn),
+          }),
+          new PolicyStatement({
+            // [ACCESS-009] item 5: this deployment's CloudWatch alarms.
+            sid: 'OperatorDenyDeploymentAlarms',
+            effect: Effect.DENY,
+            actions: [
+              'cloudwatch:PutMetricAlarm',
+              'cloudwatch:DisableAlarmActions',
+              'cloudwatch:DeleteAlarms',
+            ],
+            resources: [deploymentAlarmArnPattern],
+          }),
+          new PolicyStatement({
+            // [ACCESS-009] item 5: the notification topic.
+            sid: 'OperatorDenyAlarmTopicChanges',
+            effect: Effect.DENY,
+            actions: [
+              'sns:Unsubscribe',
+              'sns:SetTopicAttributes',
+              'sns:DeleteTopic',
+              'sns:RemovePermission',
+            ],
+            resources: [alarmTopic.topicArn],
+          }),
         ],
       }),
     });
@@ -486,5 +689,185 @@ export class IamPolicyTemplates extends Construct {
         ],
       }),
     });
+
+    // ── Pruner role (access-control [ACCESS-007], [ACCESS-008]) ───────────────
+    // The only sanctioned grant for `cairn prune` deletions, scoped to this
+    // stack's single project. The trust policy admits only the designated
+    // principals, with MFA and a caller-bound source identity, for at most one
+    // hour. IAM cannot condition a delete on retention state, so the pruner's
+    // eligibility checks run client-side; the bound on raw-API misuse is this
+    // narrow trust, project scope, the [ACCESS-010] repository policy, and the
+    // [RETAIN-013] alarm on every image delete.
+    const projectPrefix = `${orgId}/${tenantId}/${projectId}`;
+    const receiptCopyArn = archiveBucket.arnForObjects(`${projectPrefix}/*/worm-receipt.json`);
+    const ssmDeploymentParamsArn = `arn:${partition}:ssm:${region}:${account}:parameter/${naming.appName}/${stage}/*`;
+    const ssmAppNameParamArn = `arn:${partition}:ssm:${region}:${account}:parameter/cairnproofs/${naming.qualifier}/app-name`;
+    this.prunerRole = new Role(this, 'PrunerRole', {
+      roleName: naming.nameFor('pruner'),
+      description: `cairn prune deletion boundary for ${projectId} (MFA + SourceIdentity, 1h; Cairn Proofs)`,
+      assumedBy: new DesignatedPrunerPrincipals(prunerPrincipalArns),
+      maxSessionDuration: Duration.hours(1),
+    });
+    const prunerStatements: PolicyStatement[] = [
+      new PolicyStatement({
+        // Classification reads + the one delete on the project repository.
+        sid: 'PrunerEcrProjectRepo',
+        effect: Effect.ALLOW,
+        actions: [
+          'ecr:DescribeRepositories',
+          'ecr:DescribeImages',
+          'ecr:ListImages',
+          'ecr:BatchGetImage',
+          'ecr:BatchDeleteImage',
+        ],
+        resources: [projectRepoArn],
+      }),
+      new PolicyStatement({
+        // Version listing and Object Lock reads, bounded to the project prefix.
+        sid: 'PrunerS3ListProjectPrefix',
+        effect: Effect.ALLOW,
+        actions: ['s3:ListBucket', 's3:ListBucketVersions'],
+        resources: [archiveBucket.bucketArn],
+        conditions: { StringLike: { 's3:prefix': [`${projectPrefix}/*`] } },
+      }),
+      new PolicyStatement({
+        // WORM detection: a positive Object Lock configuration read.
+        sid: 'PrunerS3ObjectLockConfigRead',
+        effect: Effect.ALLOW,
+        actions: ['s3:GetBucketObjectLockConfiguration'],
+        resources: [archiveBucket.bucketArn],
+      }),
+      new PolicyStatement({
+        // The authoritative S3 receipt copy ([RETAIN-012]) — the only object
+        // body the pruner reads.
+        sid: 'PrunerS3ReceiptCopyRead',
+        effect: Effect.ALLOW,
+        actions: ['s3:GetObject', 's3:GetObjectVersion'],
+        resources: [receiptCopyArn],
+      }),
+      new PolicyStatement({
+        // Retention + legal-hold reads, and the per-version delete, under the
+        // project prefix only.
+        sid: 'PrunerS3ProjectObjectVersions',
+        effect: Effect.ALLOW,
+        actions: ['s3:GetObjectRetention', 's3:GetObjectLegalHold', 's3:DeleteObjectVersion'],
+        resources: [archiveBucket.arnForObjects(`${projectPrefix}/*`)],
+      }),
+      new PolicyStatement({
+        // Index existence check (strongly consistent GetItem), ControlClaims
+        // row lookup, and the final row deletes — tenant partition only.
+        sid: 'PrunerDdbTenantRows',
+        effect: Effect.ALLOW,
+        actions: ['dynamodb:GetItem', 'dynamodb:Query', 'dynamodb:DeleteItem'],
+        resources: [metadataTable.tableArn, controlsTable.tableArn],
+        conditions: { 'ForAllValues:StringEquals': { 'dynamodb:LeadingKeys': [tenantId] } },
+      }),
+      new PolicyStatement({
+        // Append-only audit trail ([RETAIN-011], [ACCESS-008]).
+        sid: 'PrunerAuditAppend',
+        effect: Effect.ALLOW,
+        actions: ['logs:CreateLogStream', 'logs:PutLogEvents'],
+        resources: [pruneAuditLogGroup.logGroupArn, `${pruneAuditLogGroup.logGroupArn}:log-stream:*`],
+      }),
+      new PolicyStatement({
+        // Deployment discovery: appName, table names, retention settings, the
+        // audit log group name, and this role's own ARN.
+        sid: 'PrunerDeploymentParamRead',
+        effect: Effect.ALLOW,
+        actions: ['ssm:GetParameter'],
+        resources: [ssmDeploymentParamsArn, ssmAppNameParamArn],
+      }),
+      new PolicyStatement({
+        // Decrypt the S3 receipt copy only. With S3 Bucket Keys off, the S3
+        // encryption context is the object ARN, so no evidence blob decrypts.
+        // With Bucket Keys on, the context is the bucket ARN and this denies
+        // every decrypt (fails safe).
+        sid: 'PrunerKmsDecryptReceiptCopy',
+        effect: Effect.ALLOW,
+        actions: ['kms:Decrypt'],
+        resources: [kmsKey.keyArn],
+        conditions: {
+          StringEquals: { 'kms:ViaService': `s3.${region}.amazonaws.com` },
+          StringLike: {
+            'kms:EncryptionContext:aws:s3:arn': receiptCopyArn,
+          },
+        },
+      }),
+      new PolicyStatement({
+        // Decrypt for the DynamoDB reads and deletes on the two index tables.
+        sid: 'PrunerKmsDecryptIndexTables',
+        effect: Effect.ALLOW,
+        actions: ['kms:Decrypt'],
+        resources: [kmsKey.keyArn],
+        conditions: {
+          StringEquals: {
+            'kms:ViaService': `dynamodb.${region}.amazonaws.com`,
+            'kms:EncryptionContext:aws:dynamodb:tableName': [
+              metadataTable.tableName,
+              controlsTable.tableName,
+            ],
+          },
+        },
+      }),
+      new PolicyStatement({
+        // [ACCESS-008]: the pruner can never shorten, bypass, or hide retention,
+        // nor erase its own audit trail — even if a broader policy is attached.
+        sid: 'PrunerCannotAlterRetention',
+        effect: Effect.DENY,
+        actions: [
+          's3:BypassGovernanceRetention',
+          's3:PutObjectRetention',
+          's3:PutObjectLegalHold',
+          's3:PutLifecycleConfiguration',
+          's3:PutBucketObjectLockConfiguration',
+          'ecr:PutLifecyclePolicy',
+          'ecr:DeleteLifecyclePolicy',
+          'ecr:SetRepositoryPolicy',
+          'ecr:DeleteRepositoryPolicy',
+          'ssm:PutParameter',
+          'ssm:LabelParameterVersion',
+          'ssm:DeleteParameter',
+          'logs:DeleteLogGroup',
+          'logs:DeleteLogStream',
+          'logs:PutRetentionPolicy',
+          'logs:DeleteRetentionPolicy',
+        ],
+        resources: ['*'],
+      }),
+    ];
+    for (const s of prunerStatements) {
+      this.prunerRole.addToPrincipalPolicy(s);
+    }
+
+    // ── Integration-test cleanup role (non-production only, [ACCESS-010]) ────
+    // Automation cannot satisfy the pruner's MFA condition, so the integration
+    // harness deletes its own test images through this role. Its trust names
+    // only the designated cleanup principals (by default the designated
+    // pruners), never the account root, so an account admin's blanket
+    // sts:AssumeRole grant does not reach it. A production stack never
+    // synthesizes it.
+    if (!isProd) {
+      if (integCleanupPrincipalArns.length === 0) {
+        throw new Error(
+          'integCleanupPrincipalArns must name at least one principal ([ACCESS-010] item 1).',
+        );
+      }
+      this.integrationCleanupRole = new Role(this, 'IntegrationCleanupRole', {
+        roleName: naming.nameFor('integ-cleanup'),
+        description: 'Non-production integration-test image cleanup (Cairn Proofs)',
+        assumedBy: new CompositePrincipal(
+          ...integCleanupPrincipalArns.map((arn) => new ArnPrincipal(arn)),
+        ),
+        maxSessionDuration: Duration.hours(1),
+      });
+      this.integrationCleanupRole.addToPrincipalPolicy(
+        new PolicyStatement({
+          sid: 'IntegrationCleanupEcrProjectRepo',
+          effect: Effect.ALLOW,
+          actions: ['ecr:DescribeImages', 'ecr:BatchGetImage', 'ecr:BatchDeleteImage'],
+          resources: [projectRepoArn],
+        }),
+      );
+    }
   }
 }

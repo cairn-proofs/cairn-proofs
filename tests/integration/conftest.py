@@ -30,14 +30,19 @@ Fixtures discovered here:
 - ``bundle_cleanup``          tracker that deletes ECR manifests +
                               Metadata_Index rows + S3 keys created during a
                               test, even on failure; never deletes a
-                              repository (function-scoped)
+                              repository. ECR deletes run as the
+                              non-production integration-test cleanup role,
+                              the only principal besides the pruner that the
+                              stack-owned repository policy admits for
+                              ``ecr:BatchDeleteImage`` ([ACCESS-010])
+                              (function-scoped)
 """
 
 from __future__ import annotations
 
 import os
 import subprocess
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -134,6 +139,9 @@ class StackOutputs:
     integrity_mismatch_alarm_name: str
     signing_failure_alarm_name: str
     archive_failure_alarm_name: str
+    # ARN of the non-production integration-test cleanup role ([ACCESS-010]),
+    # from SSM. ``None`` when the deployment publishes no such role.
+    cleanup_role_arn: str | None = None
 
 
 @pytest.fixture(scope="session")
@@ -170,6 +178,13 @@ def stack_outputs(integration_env: str, aws_session: Any) -> StackOutputs:
             "Value"
         ].strip()
 
+    def _cleanup_role_arn() -> str | None:
+        try:
+            value = ssm.get_parameter(Name=f"/cairnproofs4af/{stage}/integration/cleanup-role-arn")
+        except ssm.exceptions.ParameterNotFound:
+            return None
+        return value["Parameter"]["Value"].strip() or None
+
     return StackOutputs(
         qualifier=qualifier,
         stack_name=stack_name,
@@ -187,6 +202,7 @@ def stack_outputs(integration_env: str, aws_session: Any) -> StackOutputs:
         integrity_mismatch_alarm_name=f"cairn-IntegrityMismatch-{qualifier}",
         signing_failure_alarm_name=f"cairn-SigningFailure-{qualifier}",
         archive_failure_alarm_name=f"cairn-ArchiveFailure-{qualifier}",
+        cleanup_role_arn=_cleanup_role_arn(),
     )
 
 
@@ -352,6 +368,8 @@ class BundleCleanup:
 
     aws_session: Any
     stack: StackOutputs
+    # Builds a boto3 session from assumed-role credentials (seam for unit tests).
+    session_factory: Callable[..., Any] | None = None
     ecr_refs: list[tuple[str, str]] = field(default_factory=list)
     metadata_keys: list[tuple[str, str]] = field(default_factory=list)
     s3_keys: list[str] = field(default_factory=list)
@@ -451,8 +469,36 @@ class BundleCleanup:
             except ecr.exceptions.ClientError:
                 pass
 
+    def _ecr_client(self) -> Any:
+        """ECR client for the deletes: a session of the cleanup role when published.
+
+        The [ACCESS-010] repository policy denies ``ecr:BatchDeleteImage`` to every
+        principal except the pruner and this role, so the contributor's own
+        credentials can no longer delete test images. A configured role that
+        cannot be assumed RAISES — teardown must not silently skip deletes.
+        A deployment that publishes no cleanup role falls back to the
+        caller's session.
+        """
+        role_arn = self.stack.cleanup_role_arn
+        if not role_arn:
+            return self.aws_session.client("ecr")
+        creds = self.aws_session.client("sts").assume_role(
+            RoleArn=role_arn, RoleSessionName="cairn-integ-cleanup", DurationSeconds=900
+        )["Credentials"]
+        factory = self.session_factory
+        if factory is None:
+            import boto3
+
+            factory = boto3.Session
+        return factory(
+            aws_access_key_id=creds["AccessKeyId"],
+            aws_secret_access_key=creds["SecretAccessKey"],
+            aws_session_token=creds["SessionToken"],
+            region_name=self.stack.region,
+        ).client("ecr")
+
     def run(self) -> None:
-        ecr = self.aws_session.client("ecr")
+        ecr = self._ecr_client()
         ddb = self.aws_session.client("dynamodb")
         s3 = self.aws_session.client("s3")
 

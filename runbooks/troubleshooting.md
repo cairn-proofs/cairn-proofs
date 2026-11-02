@@ -1,12 +1,12 @@
 # Runbook — Troubleshooting the Artifact Pipeline
 
-First-incident triage for the four common failure modes on the `{appName}-cmh-alpha` stack — account `123456789012`, region `us-east-2`, stage `alpha`, `WORM_Enabled=false`.
+First-incident triage for the common failure modes on the `{appName}-cmh-alpha` stack — account `123456789012`, region `us-east-2`, stage `alpha`, `WORM_Enabled=false`.
 
 ## Conventions used in this runbook
 
 - **Stack qualifier**: `cmh-alpha` (region code `cmh`, stage `alpha`). Every resource name below ends in this suffix.
 - **`{appName}`**: the per-deployment application name. The default is `cairnproofs{token}`. The token freezes at first deploy — see `runbooks/deploy-alpha.md`. Substitute your deployment's actual value. ⚠️ The token deconflicts **names** only. Coexisting deployments in one account/region are **not** isolated. IAM scoping, EventBridge cross-triggering, and ECR/S3 isolation do not partition by token. When you triage, do not assume an event or invocation originated from this deployment's pipeline just because names no longer collide.
-- **Log groups**: `/aws/lambda/{appName}-validate-bundle-cmh-alpha`, `/aws/lambda/{appName}-sign-bundle-cmh-alpha`, `/aws/lambda/{appName}-archive-to-s3-cmh-alpha`, `/aws/lambda/{appName}-update-metadata-cmh-alpha`. Retention is 30 days.
+- **Log groups**: `/aws/lambda/{appName}-validate-bundle-cmh-alpha`, `/aws/lambda/{appName}-sign-bundle-cmh-alpha`, `/aws/lambda/{appName}-archive-to-s3-cmh-alpha`, `/aws/lambda/{appName}-update-metadata-cmh-alpha`. Retention is 30 days. The `cairn prune` audit trail is `/{appName}/cmh-alpha/prune-audit` and never expires.
 - **Structured-log fields** emitted on every line: `level`, `message`, `traceId`, `sessionId`, `spanId`, plus pipeline fields `requestId`, `eventType`, `projectId`, `manifestDigest`, `bundleType`, `accountId`, `ecrRepository`, `durationMs`, `status`. Searches in this runbook use these field names verbatim.
 - **EventBridge bus**: `{appName}-artifact-cmh-alpha` (custom bus for `artifact.*` events). The ECR push rule lives on the default bus (source `aws.ecr`).
 - **Metric namespace**: `CairnProofs/cmh-alpha`. Per-handler counter metric names: `Success` / `Failure` / `DurationMs`, plus `ValidationSkipped`.
@@ -570,3 +570,42 @@ Grant the operator (or read-only auditor) principal `ecr:ListImageReferrers` on 
 ### Cross-references
 
 - Code: `cli/cairn_cli/tui/_readonly_client.py` (the structural read-only allowlist, including `list_image_referrers`), `cli/cairn_cli/tui/_sources.py` (`get_bundle_referrers` unavailable-vs-empty degradation).
+
+---
+
+## 8. Retention alarm (`[RETAIN-013]`) on the alarm topic
+
+An SNS message starting `[RETAIN-013] <eventName> by <caller ARN>` reports a CloudTrail event that deleted an artifact image, changed its storage class, deleted an artifact repository, changed a repository's lifecycle or repository policy, changed the archive bucket's lifecycle or Object Lock configuration, wrote the retention-period parameter, updated archive-to-s3's configuration, or stopped or reconfigured a CloudTrail trail. The rules publish on denied attempts too; check `errorCode` in the message.
+
+### What to do
+
+1. **Image delete by the pruner role.** Match it to a `cairn prune` audit record (same digest, `step` `ecr-referrers` or `ecr-manifest`):
+   ```bash
+   aws logs filter-log-events --region us-east-2 \
+     --log-group-name "/{appName}/cmh-alpha/prune-audit" \
+     --filter-pattern '"<digest>"'
+   ```
+   No matching audit record means someone used the pruner session against the raw API and bypassed the eligibility checks. Treat that as a security incident: identify the session from the caller ARN and its `sourceIdentity` in CloudTrail.
+2. **Image delete by the integration-test cleanup role** (non-production only) is expected during integration runs.
+3. **Any other caller, or any configuration change outside a stack deploy,** is unexpected: the repository policy and the Operator DENY should have refused it. If `errorCode` is empty the change succeeded; find the principal in CloudTrail and escalate. A configuration change made by the CloudFormation execution role during a deploy is expected.
+
+---
+
+## 9. Deploy fails the CloudTrail data-event preflight
+
+`deploy.sh` prints `active trails lack these delete data-event selectors:` and lists S3 and/or DynamoDB data-event selectors. Add them to an active trail as shown in `runbooks/deploy-alpha.md` ("Delete data events"), then re-run. `put-event-selectors` replaces every selector on the trail, so include the existing ones. The checker counts a selector only when it can prove the selector records the deletes: a `NotStartsWith` / `EndsWith` operator or an unrecognized field makes it ignore that selector. The override `ALLOW_MISSING_CLOUDTRAIL=1 I_ACKNOWLEDGE_AUDIT_GAP=1` is for non-production only and records `override-acknowledged` in `AuditCoverageStatus`.
+
+---
+
+## 10. `cairn prune` refused or failed an item
+
+The command prints one line per named digest: `deleted`, `refused <reason>`, or `failed <digest> step <step>: <error>`, and exits non-zero unless every item was deleted.
+
+- **`not a session of the pruner role ... and is not an IAM user`** (exit 3): the active credentials are neither a pruner-role session nor an IAM user's. Run delete mode with your designated IAM user's credentials, as in `runbooks/deploy-alpha.md` "Pruning".
+- **`the MFA code must be six digits`** / **`cannot assume the pruner role ...`** (exit 3): re-run and enter the current code. An `AccessDenied` means the IAM user is not in `CAIRN_PRUNER_PRINCIPAL_ARNS`, lacks an identity-policy `sts:AssumeRole` grant, or the MFA device is wrong (pass `--mfa-serial`).
+- **`pruner session expires at ...`** / **`cannot determine the pruner session's remaining lifetime`**: start a fresh session and re-run.
+- **`retention in force until ...`**, **`legal hold ON ...`**, **`multiple WORM_Receipt referrers: ...`**, **`... disagrees with the S3 receipt copy`**: the item is not eligible; nothing was deleted. Multiple receipt referrers or a disagreement can mean a forged referrer; investigate before taking any other action.
+- **`<check> failed: <code>`**: a read returned throttling, access denied, or another error that is not a positive not-found. The item was refused; re-run later.
+- **`failed ... step s3-versions`** (or another step): the item's later steps were skipped and the `Metadata_Index` record is still present. Fix the cause and re-run `cairn prune` naming the same digest; it classifies from the S3 receipt copy and finishes the remaining steps.
+- **`audit write failed`**: no further delete ran. Check `logs:PutLogEvents` on the audit group and re-run.
+

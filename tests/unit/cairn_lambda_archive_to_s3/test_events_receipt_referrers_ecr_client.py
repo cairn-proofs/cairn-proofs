@@ -149,6 +149,7 @@ def test_build_receipt_returns_canonical_json() -> None:
         worm_enabled=False,
         blob_count=3,
         integrity_verified=True,
+        retain_until="2033-05-24T12:00:00Z",
     )
     parsed = json.loads(receipt_bytes)
     assert parsed == {
@@ -160,6 +161,7 @@ def test_build_receipt_returns_canonical_json() -> None:
         "wormEnabled": False,
         "blobCount": 3,
         "integrityVerified": True,
+        "retainUntil": "2033-05-24T12:00:00Z",
         "schemaVersion": "v1",
     }
 
@@ -178,6 +180,7 @@ def test_build_receipt_manifest_envelope_shape() -> None:
         subject_digest=subj_digest,
         subject_size=512,
         subject_media_type="application/vnd.oci.image.manifest.v1+json",
+        retain_until="2033-05-24T12:00:00Z",
     )
     assert artifact["schemaVersion"] == 2
     assert artifact["artifactType"] == RECEIPT_ARTIFACT_TYPE
@@ -187,6 +190,9 @@ def test_build_receipt_manifest_envelope_shape() -> None:
     assert artifact["layers"][0]["size"] == len(body)
     receipt_type_key = "dev.cairnproofs.artifact.receipt-type"
     assert artifact["annotations"][receipt_type_key] == RECEIPT_ARTIFACT_TYPE
+    assert artifact["annotations"]["dev.cairnproofs.artifact.retain-until"] == (
+        "2033-05-24T12:00:00Z"
+    )
 
 
 # ── referrers.py ────────────────────────────────────────────────────────────

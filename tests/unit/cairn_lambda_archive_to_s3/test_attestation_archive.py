@@ -193,7 +193,6 @@ def test_worm_headers_applied_to_attestation_objects(
     bundle = build_bundle()
     _seed(handler, bundle)
     monkeypatch.setattr(handler, "WORM_ENABLED", True)
-    monkeypatch.setattr(handler, "RETENTION_YEARS", 7)
 
     from unittest.mock import MagicMock
 
