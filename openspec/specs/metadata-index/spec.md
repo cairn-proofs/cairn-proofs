@@ -85,15 +85,6 @@ For **every** archived bundle, the authoritative artifact reference travels with
 - **WHEN** any archived bundle's Metadata_Index record is written and the bundle's resource is attached as an OCI Referrer
 - **THEN** the record's `artifactResourceReference` cross-reference is a projection of the referrer-borne resource — locating the bundle and its referrers — and the referrer remains the authoritative copy that travels with the artifact
 
-### Requirement: [META-006] Retain metadata records for the full retention period
-
-The retention-duration mandate is owned by the retention-lifecycle *Metadata_Index records retained for the full retention period* Requirement. The index-side angle this Requirement owns: records SHALL remain queryable for that full period — even after the ECR copy is lifecycle-expired — so that lifecycle-expired bundles can still be located and recovered from the WORM archive.
-
-#### Scenario: [META-006.01] Metadata record outlives lifecycle-expired ECR copy
-
-- **WHEN** an Artifact_Bundle's ECR manifest is removed by lifecycle policy after its WORM_Receipt is confirmed
-- **THEN** the Metadata_Index record for the bundle persists for the remainder of the configured retention period and continues to return the S3 WORM cross-reference on query
-
 ### Requirement: [META-007] Conditional writes prevent concurrent update races
 
 THE Metadata_Index SHALL prevent race conditions during concurrent updates from pipeline stages while guaranteeing that no stage's contribution to a record is silently lost. Specifically:
@@ -202,3 +193,10 @@ THE Metadata_Index SHALL support listing all Artifact_Bundles for a given projec
 
 - **WHEN** a caller queries for all bundles in project `prj-01JYBV8X1MZ3K7QF9R2T6WYN4D` within tenant `tnt-01JABCD2EF3GH4JK5MN6PQ7RS8`
 - **THEN** the Metadata_Index issues a `Query` against the base table with the partition key set exact-match to `tnt-01JABCD2EF3GH4JK5MN6PQ7RS8` and the sort-key condition `begins_with('prj-01JYBV8X1MZ3K7QF9R2T6WYN4D#')`, returning every bundle for the project, paginated
+
+## Relocated and Retired IDs
+
+| ID | Status | Resolves to |
+|---|---|---|
+| META-006 | relocated | RETAIN-002 |
+| META-006.01 | relocated | RETAIN-002.01 |

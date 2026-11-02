@@ -892,7 +892,7 @@ def test_near_miss_session_deletes_nothing_and_never_prompts(capsys) -> None:
 @pytest.mark.parametrize("value", ["\u00b2", "1\u00b2", "\u0661"])
 def test_unicode_digit_setting_is_a_discovery_error(value: str) -> None:
     """[RETAIN-007] ASCII digits only; a Unicode digit is a discovery error, not a crash."""
-    # Scenario (change delta; becomes a Covers marker at archive): [RETAIN-007.04]
+    # Covers: RETAIN-007.04
     w = World()
     w.params["/cairnproofs4af/alpha/retention/period-days"] = value
     assert _run(w) == prune.EXIT_DISCOVERY
@@ -909,7 +909,7 @@ def test_unicode_digit_setting_is_a_discovery_error(value: str) -> None:
 )
 def test_out_of_bounds_setting_is_a_discovery_error(suffix: str, value: str, capsys) -> None:
     """[RETAIN-007] a window of 0 would make freshly pushed manifests candidates."""
-    # Scenario (change delta; becomes a Covers marker at archive): [RETAIN-007.04]
+    # Covers: RETAIN-007.04
     w = World()
     w.add_other_project_row()
     fresh = w.add_image("fresh", pushed_at=NOW)
@@ -924,7 +924,7 @@ def test_out_of_bounds_setting_is_a_discovery_error(suffix: str, value: str, cap
     "suffix", ["retention/period-days", "retention/unarchived-manifest-window-days"]
 )
 def test_missing_setting_is_a_discovery_error(suffix: str, capsys) -> None:
-    # Scenario (change delta; becomes a Covers marker at archive): [RETAIN-007.04]
+    # Covers: RETAIN-007.04
     w = World()
     w.add_other_project_row()
     junk = w.add_image("junk")
@@ -936,7 +936,7 @@ def test_missing_setting_is_a_discovery_error(suffix: str, capsys) -> None:
 
 def test_index_remnant_deletes_claims_then_index_with_audit() -> None:
     """ECR and S3 gone after an interrupted prune; the re-run removes the rows."""
-    # Scenario (change delta; becomes a Covers marker at archive): [RETAIN-010.04]
+    # Covers: RETAIN-010.04
     w = World()
     w.add_other_project_row()
     d = w.add_bundle()
@@ -961,7 +961,7 @@ def test_index_remnant_deletes_claims_then_index_with_audit() -> None:
 
 
 def test_index_remnant_under_retention_is_refused_and_kept() -> None:
-    # Scenario (change delta; becomes a Covers marker at archive): [RETAIN-010.04]
+    # Covers: RETAIN-010.04
     w = World()
     w.add_other_project_row()
     d = w.add_bundle(archived_at=NOW - timedelta(days=5))
@@ -974,7 +974,7 @@ def test_index_remnant_under_retention_is_refused_and_kept() -> None:
 
 def test_bundle_with_an_archived_referrer_is_refused_and_nothing_is_deleted(capsys) -> None:
     """A producer-forged subject cannot make prune delete another bundle's parts."""
-    # Scenario (change delta; becomes a Covers marker at archive): [RETAIN-010.05]
+    # Covers: RETAIN-010.05
     w = World()
     w.add_other_project_row()
     a = w.add_bundle("a")  # expired

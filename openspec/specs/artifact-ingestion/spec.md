@@ -612,15 +612,6 @@ THE Provenance_System SHALL use the Manifest_Digest (sha256) as the canonical id
 - **WHEN** an Artifact_Bundle is referenced by signing, WORM archive cross-reference, Metadata_Index record, or OSCAL artifact reference
 - **THEN** the reference uses the bundle's SHA-256 Manifest_Digest as the canonical identifier
 
-### Requirement: [INGEST-027] ECR Lifecycle for Untagged Manifests
-
-THE Provenance_System SHALL apply ECR lifecycle policies to remove untagged manifests after a configurable retention period (default: 90 days, minimum: 1 day, maximum: 365 days) while retaining all tagged immutable manifests.
-
-#### Scenario: [INGEST-027.01] Untagged manifest removed after retention period
-
-- **WHEN** an untagged ECR manifest exists in an artifact repository and its age exceeds the configured untagged-manifest retention period (default 90 days; bounded between 1 day and 365 days)
-- **THEN** the Provenance_System's ECR lifecycle policy removes the untagged manifest while leaving all tagged immutable manifests in place
-
 ### Requirement: [INGEST-028] Reject Push Using Existing Immutable Tag
 
 IF a push attempts to use a canonical `{artifact-kind}--_ref--{digest}` tag that already exists in a repository, THEN THE Provenance_System SHALL reject the push and return an error indicating that the tag is already in use and cannot be overwritten. This rejection SHALL apply to every immutable canonical tag and SHALL NOT apply to tags in the reserved alias namespace (the `_als`/`_chn` middle-token forms), which are mutable by an authorized alias move (see *ECR Tag Immutability Enabled* and *Alias Set and Move Operation*).
@@ -846,3 +837,10 @@ A single repository SHALL hold every artifact-kind for a project; the artifact-k
 
 - **WHEN** one workload pushes bundles to the same `{org-id}/{tenant-id}/{project-id}` from two different producing identities — for example two distinct AWS accounts, or an on-prem host and a non-AWS cloud
 - **THEN** both bundles land in the identical repository path, because the producing identity is recorded per-artifact (signed claim, CloudTrail push principal, signature) and is never encoded as a path segment
+
+## Relocated and Retired IDs
+
+| ID | Status | Resolves to |
+|---|---|---|
+| INGEST-027 | relocated | RETAIN-006 |
+| INGEST-027.01 | withdrawn | |
