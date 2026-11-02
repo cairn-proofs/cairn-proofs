@@ -14,7 +14,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from cairn_cli import __version__, alias, config, pull, push, query, sign, verify
+from cairn_cli import __version__, alias, config, prune, pull, push, query, sign, verify
 from cairn_cli._help import CairnHelpFormatter, build_epilog
 from cairn_cli.tui import command as tui
 
@@ -45,6 +45,7 @@ def build_parser() -> argparse.ArgumentParser:
     query.add_subparser(subparsers)
     alias.add_subparser(subparsers)
     config.add_subparser(subparsers)
+    prune.add_subparser(subparsers)
     tui.add_subparser(subparsers)
     return parser
 

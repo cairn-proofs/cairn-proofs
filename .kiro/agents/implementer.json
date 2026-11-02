@@ -8,14 +8,16 @@
     "grep",
     "read",
     "shell",
-    "write"
+    "write",
+    "subagent"
   ],
   "allowedTools": [
     "read",
     "grep",
     "glob",
     "code",
-    "shell"
+    "shell",
+    "subagent"
   ],
   "toolsSettings": {
     "read": {
@@ -41,14 +43,19 @@
       ],
       "deniedPaths": [
         "openspec/specs/**",
-        ".kiro/**"
+        ".kiro/**",
+        "openspec/changes/*/proposal.md",
+        "openspec/changes/*/design.md",
+        "openspec/changes/*/threat-model.tc.json",
+        "openspec/changes/*/specs/**",
+        "openspec/changes/*/.openspec.yaml"
       ]
     },
     "shell": {
       "allowedCommands": [
         "uv run pytest.*",
         "uv run ruff.*",
-        "uv run python.*",
+        "uv run python -m pytest.*",
         "mise run cdk-typecheck.*",
         "mise run cdk-test.*",
         "mise run lint.*",
@@ -91,10 +98,14 @@
         ".*mise run check.*",
         ".*mise run semgrep.*",
         "uv run ruff.*--unsafe-fixes.*",
-        "rm -rf .*"
+        "rm -rf .*",
+        ".*>\\s*openspec/.*",
+        ".*>\\s*\\.kiro/.*",
+        ".*tee .*openspec/.*",
+        ".*tee .*\\.kiro/.*"
       ],
       "autoAllowReadonly": true,
-      "denyByDefault": false
+      "denyByDefault": true
     }
   },
   "resources": [
@@ -109,7 +120,7 @@
         "match": [
           "uv run pytest*",
           "uv run ruff*",
-          "uv run python*",
+          "uv run python -m pytest*",
           "mise run cdk-typecheck*",
           "mise run cdk-test*",
           "mise run lint*",
@@ -156,7 +167,13 @@
           "*mise run check*",
           "*mise run semgrep*",
           "uv run ruff*--unsafe-fixes*",
-          "rm -rf *"
+          "rm -rf *",
+          "*> openspec/*",
+          "*>openspec/*",
+          "*> .kiro/*",
+          "*>.kiro/*",
+          "*tee *openspec/*",
+          "*tee *.kiro/*"
         ],
         "effect": "deny"
       },
@@ -190,16 +207,78 @@
         "capability": "fs_write",
         "match": [
           "openspec/specs/**",
-          ".kiro/**"
+          ".kiro/**",
+          "openspec/changes/*/proposal.md",
+          "openspec/changes/*/design.md",
+          "openspec/changes/*/threat-model.tc.json",
+          "openspec/changes/*/specs/**",
+          "openspec/changes/*/.openspec.yaml"
+        ],
+        "effect": "deny"
+      },
+      {
+        "capability": "shell",
+        "match": [
+          "*"
+        ],
+        "exclude": [
+          "uv run pytest*",
+          "uv run ruff*",
+          "uv run python -m pytest*",
+          "mise run cdk-typecheck*",
+          "mise run cdk-test*",
+          "mise run lint*",
+          "mise run fmt*",
+          "*/cdk/scripts/build-lambdas*sh*",
+          "openspec list*",
+          "openspec status*",
+          "openspec instructions*",
+          "openspec validate*",
+          "git diff*",
+          "git log*",
+          "git status*",
+          "git show*",
+          "grep *",
+          "sed -n *",
+          "cat *",
+          "ls *",
+          "echo *",
+          "head *",
+          "tail *",
+          "wc *",
+          "which *",
+          "oras *",
+          "git --no-pager diff*",
+          "git --no-pager log*",
+          "git --no-pager status*",
+          "git --no-pager show*",
+          "git branch --show-current*",
+          "git check-ignore*"
+        ],
+        "effect": "deny"
+      },
+      {
+        "capability": "fs_write",
+        "match": [
+          "**"
+        ],
+        "exclude": [
+          "cdk/**",
+          "lambdas/**",
+          "libs/**",
+          "cli/**",
+          "tests/**",
+          "**/__tests__/**",
+          "docs/**",
+          "runbooks/**",
+          "pyproject.toml",
+          "uv.lock",
+          "openspec/changes/*/tasks.md"
         ],
         "effect": "deny"
       },
       {
         "capability": "fs_read",
-        "effect": "allow"
-      },
-      {
-        "capability": "shell",
         "effect": "allow"
       },
       {

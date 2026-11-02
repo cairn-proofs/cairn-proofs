@@ -65,10 +65,13 @@ class ControlClaims:
     ) -> int:
         """Fan out one row per control on the bundle.
 
-        Uses boto3's ``Table.batch_writer`` which automatically chunks
-        into 25-item BatchWriteItem requests AND retries UnprocessedItems
-        — so a single call cleanly handles bundles citing more controls
-        than fit in one DynamoDB request.
+        Writes each row with its own ``PutItem``. ``BatchWriteItem`` is never
+        used: IAM cannot limit it to puts, so granting it would also grant
+        deletes, and no pipeline role may delete an index row
+        (access-control [ACCESS-007.02]). A row's key is fully determined by
+        its inputs, so re-delivering the same bundle overwrites identical rows
+        (idempotent). The first failed put raises its ``ClientError`` to the
+        caller; it is never swallowed.
 
         Args:
             tenant_id: The caller's opaque ``{tenant-id}`` — the partition
@@ -109,18 +112,17 @@ class ControlClaims:
             "manifestDigest",
         }
         base = {k: v for k, v in denormalized.items() if k not in reserved}
-        with self._table.batch_writer() as batch:
-            for control_id in unique_controls:
-                item = {
-                    **base,
-                    "pk": tenant_id,
-                    "sk": f"{catalog_or_profile_uuid}#{control_id}#{manifest_digest}",
-                    "tenantId": tenant_id,
-                    "catalogOrProfileUuid": catalog_or_profile_uuid,
-                    "controlId": control_id,
-                    "manifestDigest": manifest_digest,
-                }
-                batch.put_item(Item=item)
+        for control_id in unique_controls:
+            item = {
+                **base,
+                "pk": tenant_id,
+                "sk": f"{catalog_or_profile_uuid}#{control_id}#{manifest_digest}",
+                "tenantId": tenant_id,
+                "catalogOrProfileUuid": catalog_or_profile_uuid,
+                "controlId": control_id,
+                "manifestDigest": manifest_digest,
+            }
+            self._table.put_item(Item=item)
         return len(unique_controls)
 
     def query_by_control(

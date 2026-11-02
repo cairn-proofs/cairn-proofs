@@ -1,4 +1,4 @@
-import { EventBus as EbEventBus, Rule } from 'aws-cdk-lib/aws-events';
+import { EventBus as EbEventBus, EventField, Rule, RuleTargetInput } from 'aws-cdk-lib/aws-events';
 import { SnsTopic } from 'aws-cdk-lib/aws-events-targets';
 import { ITopic } from 'aws-cdk-lib/aws-sns';
 import { Construct } from 'constructs';
@@ -7,7 +7,28 @@ import { Naming } from '../naming';
 export interface EventBusProps {
   readonly naming: Naming;
   readonly alarmTopic: ITopic;
+  /** Physical name of the S3 archive bucket ([RETAIN-013] item 3). */
+  readonly archiveBucketName: string;
+  /** SSM path of the retention-period parameter ([RETAIN-013] item 4). */
+  readonly retentionParamName: string;
+  /** SSM path of the unarchived-manifest-window parameter ([RETAIN-013] item 4). */
+  readonly windowParamName: string;
+  /** Physical name of the archive-to-s3 Lambda ([RETAIN-013] item 4). */
+  readonly archiveFunctionName: string;
 }
+
+/**
+ * The SNS message every [RETAIN-013] rule publishes. It names the caller
+ * principal and the request parameters, which carry the affected resource
+ * (repository and image ids, bucket, parameter, function, or trail).
+ */
+export const RETENTION_ALARM_MESSAGE = RuleTargetInput.fromText(
+  `[RETAIN-013] ${EventField.fromPath('$.detail.eventName')} by ` +
+    `${EventField.fromPath('$.detail.userIdentity.arn')} in account ` +
+    `${EventField.fromPath('$.account')} (${EventField.fromPath('$.region')}); ` +
+    `request: ${EventField.fromPath('$.detail.requestParameters')}; ` +
+    `errorCode: ${EventField.fromPath('$.detail.errorCode')}`,
+);
 
 /**
  * Custom EventBridge bus + routing rules for the validate → sign → archive →
@@ -42,10 +63,22 @@ export class EventBus extends Construct {
   readonly signingFailedRule: Rule;
   readonly archiveFailedRule: Rule;
 
+  // [RETAIN-013] deletion and retention-configuration alarms (CloudTrail on
+  // the default bus → SNS). The Operator may not change them ([ACCESS-009]).
+  readonly retentionAlarmRules: Rule[];
+
   constructor(scope: Construct, id: string, props: EventBusProps) {
     super(scope, id);
 
-    const { naming, alarmTopic } = props;
+    const {
+      naming,
+      alarmTopic,
+      archiveBucketName,
+      retentionParamName,
+      windowParamName,
+      archiveFunctionName,
+    } = props;
+    const retentionSettingParams = [retentionParamName, windowParamName];
 
     // Bus name is `{appName}-artifact-{qualifier}`.
     this.bus = new EbEventBus(this, 'Bus', {
@@ -215,5 +248,90 @@ export class EventBus extends Construct {
       },
       targets: [new SnsTopic(alarmTopic)],
     });
+
+    // ── [RETAIN-013] deletion + retention-configuration alarms ────────────
+    // CloudTrail management events on the DEFAULT bus. No errorCode filter:
+    // a denied attempt is as alarm-worthy as a successful one. Every rule
+    // publishes RETENTION_ALARM_MESSAGE (caller principal + resource).
+    const cloudTrailRule = (
+      id: string,
+      resource: string,
+      description: string,
+      detail: Record<string, unknown>,
+    ): Rule =>
+      new Rule(this, id, {
+        ruleName: naming.nameFor(`retention-alarm-${resource}`),
+        description,
+        eventPattern: {
+          detailType: ['AWS API Call via CloudTrail'],
+          detail,
+        },
+        targets: [new SnsTopic(alarmTopic, { message: RETENTION_ALARM_MESSAGE })],
+      });
+    const artifactRepos = { repositoryName: [{ prefix: `${naming.artifactNamespace}/` }] };
+    this.retentionAlarmRules = [
+      // Item 1: image delete, archive storage class, repository delete.
+      cloudTrailRule('RetentionAlarmEcrImageDelete', 'ecr-delete', '[RETAIN-013] item 1: artifact image or repository deletion', {
+        eventSource: ['ecr.amazonaws.com'],
+        eventName: ['BatchDeleteImage', 'UpdateImageStorageClass', 'DeleteRepository'],
+        requestParameters: artifactRepos,
+      }),
+      // Item 2: lifecycle policy or repository policy change.
+      cloudTrailRule('RetentionAlarmEcrPolicy', 'ecr-policy', '[RETAIN-013] item 2: artifact repository lifecycle or repository policy change', {
+        eventSource: ['ecr.amazonaws.com'],
+        eventName: [
+          'PutLifecyclePolicy',
+          'DeleteLifecyclePolicy',
+          'SetRepositoryPolicy',
+          'DeleteRepositoryPolicy',
+        ],
+        requestParameters: artifactRepos,
+      }),
+      // Item 3: archive bucket lifecycle or Object Lock configuration.
+      cloudTrailRule('RetentionAlarmArchiveBucket', 's3-config', '[RETAIN-013] item 3: archive bucket lifecycle or Object Lock change', {
+        eventSource: ['s3.amazonaws.com'],
+        eventName: [
+          'PutBucketLifecycle',
+          'PutBucketLifecycleConfiguration',
+          'DeleteBucketLifecycle',
+          'PutObjectLockConfiguration',
+          'PutBucketObjectLockConfiguration',
+        ],
+        requestParameters: { bucketName: [archiveBucketName] },
+      }),
+      // Item 4a: retention-period or unarchived-manifest-window parameter
+      // write, label, or delete.
+      cloudTrailRule('RetentionAlarmRetentionParam', 'ssm-param', '[RETAIN-013] item 4: retention setting parameter change', {
+        eventSource: ['ssm.amazonaws.com'],
+        eventName: [
+          'PutParameter',
+          'LabelParameterVersion',
+          'UnlabelParameterVersion',
+          'DeleteParameter',
+        ],
+        requestParameters: { name: retentionSettingParams },
+      }),
+      // Item 4b: the batch delete names its targets in `names`, not `name`.
+      cloudTrailRule('RetentionAlarmRetentionParamBatch', 'ssm-params', '[RETAIN-013] item 4: retention setting parameter batch delete', {
+        eventSource: ['ssm.amazonaws.com'],
+        eventName: ['DeleteParameters'],
+        requestParameters: { names: retentionSettingParams },
+      }),
+      // Item 4c: archive-stage configuration. CloudTrail records the API with a
+      // version suffix (`UpdateFunctionConfiguration20150331v2`), so match the
+      // prefix; functionName is the name or the ARN.
+      cloudTrailRule('RetentionAlarmArchiveStageConfig', 'lambda-config', '[RETAIN-013] item 4: archive stage function configuration change', {
+        eventSource: ['lambda.amazonaws.com'],
+        eventName: [{ prefix: 'UpdateFunctionConfiguration' }],
+        requestParameters: {
+          functionName: [archiveFunctionName, { suffix: `:function:${archiveFunctionName}` }],
+        },
+      }),
+      // Item 5: any trail stop, delete, update, or event-selector change.
+      cloudTrailRule('RetentionAlarmTrail', 'cloudtrail', '[RETAIN-013] item 5: CloudTrail trail stopped, deleted, or reconfigured', {
+        eventSource: ['cloudtrail.amazonaws.com'],
+        eventName: ['StopLogging', 'DeleteTrail', 'UpdateTrail', 'PutEventSelectors'],
+      }),
+    ];
   }
 }

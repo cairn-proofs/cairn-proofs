@@ -20,8 +20,8 @@ export interface LogGroupsProps {
  * inheriting Lambda's auto-create default of "never expire" (which silently
  * burns budget).
  *
- * 30-day retention — long enough to triage incidents over a sprint, short
- * enough to bound storage.
+ * 30-day retention for the Lambda groups — long enough to triage incidents over
+ * a sprint, short enough to bound storage. The prune audit group never expires.
  */
 export class LogGroups extends Construct {
   readonly validateBundle: LogGroup;
@@ -29,6 +29,8 @@ export class LogGroups extends Construct {
   readonly archiveToS3: LogGroup;
   readonly updateMetadata: LogGroup;
   readonly mintTag: LogGroup;
+  /** Never-expiring `cairn prune` audit log group ([RETAIN-011]). */
+  readonly pruneAudit: LogGroup;
 
   constructor(scope: Construct, id: string, props: LogGroupsProps) {
     super(scope, id);
@@ -46,5 +48,13 @@ export class LogGroups extends Construct {
     this.archiveToS3 = make('ArchiveToS3', naming.nameFor('archive-to-s3'));
     this.updateMetadata = make('UpdateMetadata', naming.nameFor('update-metadata'));
     this.mintTag = make('MintTag', naming.nameFor('mint-tag'));
+
+    // Prune audit trail ([RETAIN-011]): stack-owned and never expiring. The
+    // pruner role may only append to it ([ACCESS-008]).
+    this.pruneAudit = new LogGroup(this, 'PruneAudit', {
+      logGroupName: `/${naming.appName}/${naming.qualifier}/prune-audit`,
+      retention: RetentionDays.INFINITE,
+      removalPolicy: statefulRemovalPolicy(props.isProd),
+    });
   }
 }

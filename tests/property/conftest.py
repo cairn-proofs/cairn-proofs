@@ -20,6 +20,8 @@ from tests.unit.cairn_lambda_archive_to_s3.conftest import (
     ARCHIVE_BUCKET,
     EVENT_BUS_NAME,
     REGION_CODE,
+    RETENTION_DAYS,
+    RETENTION_PARAM,
     STAGE,
     EventRecorder,
     FakeEcr,
@@ -54,13 +56,16 @@ def reload_archive_handler(monkeypatch: pytest.MonkeyPatch, aws_region: str) -> 
     monkeypatch.setenv("ARCHIVE_BUCKET", ARCHIVE_BUCKET)
     monkeypatch.setenv("EVENT_BUS_NAME", EVENT_BUS_NAME)
     monkeypatch.setenv("WORM_ENABLED", "false")
-    monkeypatch.setenv("WORM_RETENTION_YEARS", "7")
+    monkeypatch.setenv("RETENTION_PERIOD_PARAM", RETENTION_PARAM)
 
     with mock_aws():
         s3 = boto3.client("s3", region_name=aws_region)
         s3.create_bucket(
             Bucket=ARCHIVE_BUCKET,
             CreateBucketConfiguration={"LocationConstraint": aws_region},
+        )
+        boto3.client("ssm", region_name=aws_region).put_parameter(
+            Name=RETENTION_PARAM, Value=str(RETENTION_DAYS), Type="String"
         )
 
         import cairn_lambda_archive_to_s3.ecr_client as ecr_module
@@ -73,8 +78,10 @@ def reload_archive_handler(monkeypatch: pytest.MonkeyPatch, aws_region: str) -> 
         events_module._EVENTS_CLIENT = None
         referrers_module._ECR_CLIENT = None
         handler_module._S3 = None
+        handler_module._SSM = None
         handler = importlib.reload(handler_module)
         handler._S3 = None
+        handler._SSM = None
 
         fake_ecr = FakeEcr()
         recorder = EventRecorder()

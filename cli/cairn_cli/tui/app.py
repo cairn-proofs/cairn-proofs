@@ -32,9 +32,12 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from botocore.exceptions import BotoCoreError, ClientError
+from cairn_oci import RETAIN_UNTIL_ANNOTATION
 from cairn_oci.categories import (
     ArtifactLocator,
     InvalidArtifactKindError,
@@ -58,6 +61,7 @@ from textual.widgets import (
 )
 
 from cairn_cli._pending import TAG_PENDING_LABEL, is_tag_pending
+from cairn_cli._prune_eligibility import format_rfc3339_utc, parse_rfc3339_utc
 from cairn_cli.tui._projects import project_id_from_repo_name
 from cairn_cli.tui._render_safety import render_safe
 from cairn_cli.tui._sources import alias_tag_of, classify_referrer, manifest_dict_from_response
@@ -281,6 +285,62 @@ def compose_verify_command(
     )
 
 
+#: Opaque id grammar (``cairn_oci.categories`` ``_ID_RE``) for the org / tenant /
+#: project segments the surfaced ``cairn prune`` command interpolates.
+_OPAQUE_ID_RE = re.compile(r"\A[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?\Z")
+
+RETENTION_EXPIRED = "expired"
+RETENTION_IN_FORCE = "in force"
+RETENTION_UNKNOWN = "unknown"
+
+
+def retention_status(listing: ReferrerListing | None, now: datetime) -> tuple[datetime | None, str]:
+    """Retain_Until and its status from the WORM_Receipt referrer annotation ([TUI-016]).
+
+    Reads ONLY the ``dev.cairnproofs.artifact.retain-until`` annotation carried
+    on the ``ListImageReferrers`` result the detail view already fetched — no
+    extra AWS call. The annotation is producer-writable, so this is a display
+    value, never an eligibility decision ([RETAIN-012]). Returns
+    ``(None, "unknown")`` when the read failed, there is not exactly one
+    WORM_Receipt referrer, or the value is absent or not strict RFC 3339 UTC.
+    """
+    if listing is None or not listing.available:
+        return None, RETENTION_UNKNOWN
+    receipts = [
+        r for r in listing.referrers if classify_referrer(r.artifact_type) == "worm-receipt"
+    ]
+    if len(receipts) != 1:
+        return None, RETENTION_UNKNOWN
+    retain_until = parse_rfc3339_utc(receipts[0].annotations.get(RETAIN_UNTIL_ANNOTATION))
+    if retain_until is None:
+        return None, RETENTION_UNKNOWN
+    return retain_until, RETENTION_EXPIRED if now >= retain_until else RETENTION_IN_FORCE
+
+
+def compose_prune_report_command(
+    record: dict[str, Any], *, stage: str, region_code: str
+) -> str | None:
+    """The ``cairn prune`` REPORT command for the bundle's project ([TUI-016.03]).
+
+    Report mode only (no ``--digest``): the TUI never offers or composes a
+    delete. The org / tenant / project come from the record's repository path
+    and must each match the opaque-id grammar, else ``None``.
+    """
+    repository_name = record.get("repositoryName")
+    if not isinstance(repository_name, str):
+        return None
+    segments = repository_name.split("/")
+    if len(segments) < 4:
+        return None
+    org_id, tenant_id, project_id = segments[-3:]
+    if not all(_OPAQUE_ID_RE.match(x) for x in (org_id, tenant_id, project_id)):
+        return None
+    return (
+        f"cairn prune --target {org_id}/{tenant_id}/{project_id} "
+        f"--stage {stage} --region-code {region_code}"
+    )
+
+
 def compute_lifecycle(record: dict[str, Any]) -> list[tuple[str, str, str]]:
     """Derive the (stage, state, detail) lifecycle timeline from the record.
 
@@ -401,9 +461,13 @@ class ArtifactStoreApp(App[None]):
         deployment_target: DeploymentTarget | None = None,
         region: str | None = None,
         title: str = "Cairn Proofs (read-only)",
+        clock: Callable[[], datetime] | None = None,
     ) -> None:
         super().__init__()
         self._sources = sources
+        # Wall clock for the retention status (expired / in force); injectable
+        # so tests pin "now".
+        self._clock: Callable[[], datetime] = clock or (lambda: datetime.now(UTC))
         self._min_watch_interval = max(0.1, float(min_watch_interval))
         self._watch_interval = max(float(watch_interval), self._min_watch_interval)
         self._deployment_target = deployment_target
@@ -557,6 +621,7 @@ class ArtifactStoreApp(App[None]):
                         id="detail-body",
                     )
                     yield Label("", id="verify-cmd")
+                    yield Static(self._literal(self._safe("")), id="retention-body")
                     yield Static(
                         self._literal(self._safe("== Referrers (OCI) ==")),
                         id="referrers-caption",
@@ -1147,6 +1212,34 @@ class ArtifactStoreApp(App[None]):
             )
         return self._safe(f"verify (run manually): {command}")
 
+    def render_retention_lines(
+        self, record: dict[str, Any], listing: ReferrerListing | None
+    ) -> list[str]:
+        """Compose the retention section as render-SAFE lines ([TUI-016]).
+
+        Retain_Until and its status come from :func:`retention_status` (the
+        already-fetched referrer listing). An unparseable annotation shows
+        *unknown* and its raw value is never rendered as a date. The section
+        offers no delete action; it surfaces the ``cairn prune`` REPORT command
+        for manual use.
+        """
+        retain_until, status = retention_status(listing, self._clock())
+        stage, region_code = self._stage_and_region()
+        command = compose_prune_report_command(record, stage=stage, region_code=region_code)
+        shown = format_rfc3339_utc(retain_until) if retain_until else RETENTION_UNKNOWN
+        prune_line = (
+            "prune report: cannot construct command for this bundle"
+            if command is None
+            else f"prune report (run manually): {command}"
+        )
+        return [
+            "",
+            "== Retention ==",
+            f"Retain_Until: {self._safe(shown)}",
+            f"Retention:    {self._safe(status)}",
+            self._safe(prune_line),
+        ]
+
     def _stage_and_region(self) -> tuple[str, str]:
         target = self._deployment_target
         if target is not None:
@@ -1394,6 +1487,9 @@ class ArtifactStoreApp(App[None]):
         body.update(self._literal("\n".join(self.render_detail_lines(detail.record))))
         verify_label = self.query_one("#verify-cmd", Label)
         verify_label.update(self._literal(self.render_verify_line(detail.record)))
+        self.query_one("#retention-body", Static).update(
+            self._literal("\n".join(self.render_retention_lines(detail.record, referrers)))
+        )
         self._populate_referrer_table(referrers)
         # Focus the scrollable pane so PageUp/Down + arrows scroll long detail
         # without first clicking it. Only steal focus while Detail is the active

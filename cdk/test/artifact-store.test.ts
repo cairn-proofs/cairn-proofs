@@ -41,6 +41,13 @@ const TEST_PROJECT_ID = 'mvp-project';
 const PROJECT_REPO_PATH = `${TEST_APP_NAME}-artifact-cmh-alpha/${TEST_ORG_ID}/${TEST_TENANT_ID}/${TEST_PROJECT_ID}`;
 const PROJECT_REPO_ARN = `arn:aws:ecr:us-east-2:111111111111:repository/${PROJECT_REPO_PATH}`;
 
+// Designated pruner principals ([ACCESS-007]). Tests pass them explicitly so
+// the suite never depends on the operator's .env.
+const TEST_PRUNER_PRINCIPALS = [
+  'arn:aws:iam::111111111111:user/dana',
+  'arn:aws:iam::111111111111:user/robin',
+];
+
 // Overrides for the alarm-action gate matrix: the effective `ActionsEnabled`
 // posture is `isProd || alarmActionsEnabled`. Defaults are the alpha config
 // (isProd=false, opt-in omitted).
@@ -59,6 +66,7 @@ function makeStack(
     isProd: false,
     wormEnabled: false,
     notificationEmail: 'test@example.com',
+    prunerPrincipalArns: TEST_PRUNER_PRINCIPALS,
     ...overrides,
   });
 }
@@ -279,7 +287,7 @@ test('provisions a single collapsed ECR repository with alias-scoped tag immutab
 // (The removal policy is gated on isProd — see the teardown-readiness section
 // at the bottom of this file: this isProd=false test stack is Delete-on-
 // teardown; isProd=true stays Retain.)
-test('collapsed ECR repository retains KMS encryption and lifecycle rule', () => {
+test('collapsed ECR repository retains KMS encryption and carries no lifecycle policy', () => {
   const template = Template.fromStack(makeStack());
 
   // KMS encryption referencing the service CMK. The key is a Ref/Fn::GetAtt,
@@ -291,28 +299,10 @@ test('collapsed ECR repository retains KMS encryption and lifecycle rule', () =>
     }),
   });
 
-  // UNTAGGED 90-day lifecycle rule. LifecyclePolicyText is a JSON string; match
-  // the tagStatus / sinceImagePushed=90 intent within the serialized policy.
+  // [RETAIN-006]: no lifecycle rule of any kind on an artifact repository.
   template.hasResourceProperties('AWS::ECR::Repository', {
-    LifecyclePolicy: Match.objectLike({
-      LifecyclePolicyText: Match.serializedJson(
-        Match.objectLike({
-          rules: Match.arrayWith([
-            Match.objectLike({
-              selection: Match.objectLike({
-                tagStatus: 'untagged',
-                countType: 'sinceImagePushed',
-                countUnit: 'days',
-                countNumber: 90,
-              }),
-              action: Match.objectLike({ type: 'expire' }),
-            }),
-          ]),
-        }),
-      ),
-    }),
+    LifecyclePolicy: Match.absent(),
   });
-
 });
 
 // IAM scoping for the uniform three-segment path
@@ -467,6 +457,7 @@ test('AuditCoverageStatus reflects the cloudTrailCheck context value', () => {
     isProd: false,
     wormEnabled: false,
     notificationEmail: 'test@example.com',
+    prunerPrincipalArns: TEST_PRUNER_PRINCIPALS,
   });
   const template = Template.fromStack(stack);
   template.hasOutput('AuditCoverageStatus', { Value: 'passed' });
@@ -1584,30 +1575,6 @@ test('mint-tag has its own DLQ and CloudWatch log group', () => {
   });
 });
 
-test('untagged-manifest lifecycle window stays at 90 days (in-flight reaping guard, T-09)', () => {
-  const template = Template.fromStack(makeStack());
-  // R6/T-09: an archived-but-not-yet-tagged manifest is legitimately untagged
-  // for the full pipeline-through-mint latency. The 90-day window must comfortably
-  // exceed that latency so no in-flight artifact is reaped before mint. Assert
-  // the UNTAGGED expire rule is present and its window is >= 90 days.
-  const repos = template.findResources('AWS::ECR::Repository');
-  const repoProps = Object.values(repos)[0].Properties as {
-    LifecyclePolicy: { LifecyclePolicyText: string };
-  };
-  const policy = JSON.parse(repoProps.LifecyclePolicy.LifecyclePolicyText) as {
-    rules: Array<{
-      selection: { tagStatus: string; countType: string; countUnit: string; countNumber: number };
-      action: { type: string };
-    }>;
-  };
-  const untaggedRule = policy.rules.find((r) => r.selection.tagStatus === 'untagged');
-  expect(untaggedRule).toBeDefined();
-  expect(untaggedRule!.action.type).toBe('expire');
-  expect(untaggedRule!.selection.countType).toBe('sinceImagePushed');
-  expect(untaggedRule!.selection.countUnit).toBe('days');
-  expect(untaggedRule!.selection.countNumber).toBeGreaterThanOrEqual(90);
-});
-
 // ── Alias-scoped tag mutability + alias-mover boundary ──────────────────────
 //
 // The reserved alias namespace (`_als`/`_chn` middle-token forms) is mutable
@@ -1768,7 +1735,7 @@ test('operator managed policy exists and is untrusted for integrity (no PutImage
   // The operator can read/operate the substrate (describe visibility + a
   // management knob) …
   expect(allowActions).toContain('ecr:Describe*');
-  expect(allowActions).toContain('ecr:PutLifecyclePolicy');
+  expect(allowActions).toContain('ecr:PutImageScanningConfiguration');
   expect(allowActions).toContain('cloudformation:DescribeStacks');
   // … but operating does NOT grant the data-plane manifest/alias write, so the
   // operator cannot move an alias by operating ([ACCESS-006.01]).
@@ -2144,14 +2111,15 @@ test('one DeadLetterErrors alarm per pipeline Lambda, action wired-but-disabled 
 // The stack's stateful (data-bearing) resource types and the count of each —
 // 17 resources across the RETAIN-gated construct sites (archive + access-log
 // buckets, ECR repo, 3 DynamoDB tables — Metadata_Index + ControlClaims +
-// Identity_Registry, KMS CMK, 5 DLQs, 5 log groups).
+// Identity_Registry, KMS CMK, 5 DLQs, 5 Lambda log groups + the prune audit
+// log group).
 const STATEFUL_RESOURCE_COUNTS: Record<string, number> = {
   'AWS::S3::Bucket': 2,
   'AWS::ECR::Repository': 1,
   'AWS::DynamoDB::Table': 3,
   'AWS::KMS::Key': 1,
   'AWS::SQS::Queue': 5,
-  'AWS::Logs::LogGroup': 5,
+  'AWS::Logs::LogGroup': 6,
 };
 
 // Production stack WITHOUT Object Lock (isProd=true, wormEnabled=false). Proves
@@ -2169,6 +2137,7 @@ function makeProdStack(): ArtifactStoreStack {
     isProd: true,
     wormEnabled: false,
     notificationEmail: 'test@example.com',
+    prunerPrincipalArns: TEST_PRUNER_PRINCIPALS,
   });
 }
 
@@ -2187,6 +2156,7 @@ function makeWormStack(): ArtifactStoreStack {
     isProd: true,
     wormEnabled: true,
     notificationEmail: 'test@example.com',
+    prunerPrincipalArns: TEST_PRUNER_PRINCIPALS,
   });
 }
 
@@ -2275,6 +2245,7 @@ test('forcing DESTROY onto a stateful resource of an isProd=true stack fails syn
     isProd: true,
     wormEnabled: false,
     notificationEmail: 'test@example.com',
+    prunerPrincipalArns: TEST_PRUNER_PRINCIPALS,
   });
   stack.metadataTable.table.applyRemovalPolicy(RemovalPolicy.DESTROY);
   expect(() => app.synth()).toThrow(/isProd=true requires every stateful resource/);
@@ -2341,6 +2312,7 @@ test('constructing a stack with wormEnabled=true but isProd=false throws (WORM �
         isProd: false,
         wormEnabled: true,
         notificationEmail: 'test@example.com',
+        prunerPrincipalArns: TEST_PRUNER_PRINCIPALS,
       }),
   ).toThrow(/WORM_Enabled=true requires isProd=true/);
 });
@@ -2432,6 +2404,7 @@ test('stack name is the 2-segment exception {appName}-{qualifier} (no {resource}
     isProd: false,
     wormEnabled: false,
     notificationEmail: 'test@example.com',
+    prunerPrincipalArns: TEST_PRUNER_PRINCIPALS,
   });
   expect(stack.stackName).toBe(`${TEST_APP_NAME}-cmh-alpha`);
   // Two segments after the appName-token boundary: appName then qualifier — no

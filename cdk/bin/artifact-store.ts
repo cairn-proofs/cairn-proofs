@@ -61,6 +61,107 @@ export function resolveDeployConfig(env: NodeJS.ProcessEnv = process.env): Deplo
   return { account, region, regionCode, stage, qualifier };
 }
 
+/** Env var holding the comma-separated designated pruner principal ARNs. */
+export const PRUNER_PRINCIPALS_ENV = 'CAIRN_PRUNER_PRINCIPAL_ARNS';
+
+/** Env var holding the comma-separated integration-test cleanup principal ARNs. */
+export const INTEG_CLEANUP_PRINCIPALS_ENV = 'CAIRN_INTEG_CLEANUP_PRINCIPAL_ARNS';
+
+function splitArnList(env: NodeJS.ProcessEnv, name: string): string[] {
+  return (env[name] ?? '')
+    .split(',')
+    .map((e) => e.trim())
+    .filter((e) => e.length > 0);
+}
+
+/**
+ * Throw unless every entry is an IAM ARN of one of `kinds` in `account`:
+ * never a wildcard, an account root, a service principal, a session ARN, or
+ * another account.
+ */
+function requireInAccountIamArns(
+  entries: string[],
+  account: string,
+  kinds: ReadonlyArray<'user' | 'role'>,
+  name: string,
+  why: string,
+): void {
+  const iamArn = new RegExp(
+    `^arn:aws(-[a-z]+)*:iam::(\\d{12}):(${kinds.join('|')})\\/[A-Za-z0-9+=,.@_\\/-]+$`,
+  );
+  const label = `an IAM ${kinds.join(' or ')} ARN`;
+  for (const entry of entries) {
+    const match = iamArn.exec(entry);
+    if (!match || match[2] !== account) {
+      throw new Error(
+        `${name} entry '${entry}' is not ${label} in the deployment account ${account}. ${why}`,
+      );
+    }
+  }
+}
+
+/**
+ * Parse and validate the designated pruner principals ([ACCESS-007]) from
+ * `CAIRN_PRUNER_PRINCIPAL_ARNS` (comma-separated). FAILS FAST when the list is
+ * empty or any entry is not an IAM user ARN in `account`. Roles are rejected:
+ * the pruner trust policy binds `sts:SourceIdentity` to `${aws:username}`,
+ * which only an IAM user's request carries, and a role entry could name the
+ * Operator, producer, pipeline, or auditor role.
+ */
+export function resolvePrunerPrincipalArns(
+  account: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string[] {
+  const entries = splitArnList(env, PRUNER_PRINCIPALS_ENV);
+  if (entries.length === 0) {
+    throw new Error(
+      `${PRUNER_PRINCIPALS_ENV} is unset or empty. Set it in your gitignored .env to ` +
+        'the comma-separated IAM user ARNs allowed to assume the pruner role ' +
+        '([ACCESS-007]); see runbooks/deploy-alpha.md.',
+    );
+  }
+  requireInAccountIamArns(
+    entries,
+    account,
+    ['user'],
+    PRUNER_PRINCIPALS_ENV,
+    'Only designated IAM users may assume the pruner role ([ACCESS-007]).',
+  );
+  return entries;
+}
+
+/**
+ * Parse and validate the principals that may assume the non-production
+ * integration-test cleanup role ([ACCESS-010] item 1) from
+ * `CAIRN_INTEG_CLEANUP_PRINCIPAL_ARNS` (comma-separated IAM user or role ARNs
+ * in `account`). When unset or empty, the designated pruner principals are
+ * used, so the role never trusts the whole account.
+ */
+export function resolveIntegCleanupPrincipalArns(
+  account: string,
+  prunerPrincipalArns: string[],
+  env: NodeJS.ProcessEnv = process.env,
+): string[] {
+  const entries = splitArnList(env, INTEG_CLEANUP_PRINCIPALS_ENV);
+  if (entries.length === 0) {
+    return [...prunerPrincipalArns];
+  }
+  requireInAccountIamArns(
+    entries,
+    account,
+    ['user', 'role'],
+    INTEG_CLEANUP_PRINCIPALS_ENV,
+    'Only named principals may assume the integration-test cleanup role ([ACCESS-010]).',
+  );
+  return entries;
+}
+
+/** Read an optional whole-number context value (`cdk --context name=N`). */
+function numberContext(app: App, name: string): number | undefined {
+  const raw = app.node.tryGetContext(name);
+  return raw === undefined ? undefined : Number(raw);
+}
+
 /**
  * Construct the CDK app and synthesize the Provenance_System stack against the
  * env-sourced deployment target.
@@ -73,6 +174,7 @@ export function synthApp(): App {
   // committed cdk/app-config.json token. The stack id IS the stack name —
   // `{appName}-{qualifier}` (the 2-segment naming exception).
   const naming = Naming.fromProps({ qualifier });
+  const prunerPrincipalArns = resolvePrunerPrincipalArns(account);
 
   new ArtifactStoreStack(app, naming.stackName(), {
     env: {
@@ -98,6 +200,12 @@ export function synthApp(): App {
     isProd: false,
     wormEnabled: false,
     notificationEmail: app.node.tryGetContext('notificationEmail') ?? '',
+    // [RETAIN-007]: bounds are checked at synth by the stack. Overridable via
+    // `cdk --context retentionPeriodDays=N` / `unarchivedManifestWindowDays=N`.
+    retentionPeriodDays: numberContext(app, 'retentionPeriodDays'),
+    unarchivedManifestWindowDays: numberContext(app, 'unarchivedManifestWindowDays'),
+    prunerPrincipalArns,
+    integCleanupPrincipalArns: resolveIntegCleanupPrincipalArns(account, prunerPrincipalArns),
   });
 
   app.synth();

@@ -121,6 +121,20 @@ Per-deployment boolean: `true` → S3 Object Lock Compliance + per-object retent
 
 - **Governed by** — [Archive workflow and conditional Object Lock application](specs/worm-archive/spec.md#requirement-worm-001-archive-workflow-and-conditional-object-lock-application) ([WORM-001])
 
+### Retain_Until
+
+The instant an archived Artifact_Bundle's retention period ends: its archive timestamp plus the deployment's configured retention period in days, in both `WORM_Enabled` modes.
+
+- **Governed by** — [retention-lifecycle](specs/retention-lifecycle/spec.md) ([RETAIN-003] *Single retention clock for every archived bundle*)
+- **Carried as** — `retainUntil` in the WORM_Receipt body and the `dev.cairnproofs.artifact.retain-until` receipt referrer annotation; under `WORM_Enabled=true`, also every object version's `ObjectLockRetainUntilDate`
+
+### Prune_Candidate
+
+An item an operator may delete through `cairn prune`: an *expired bundle* (Retain_Until passed, no legal hold) or an *unarchived manifest* (proven to have no referrer, index record, or archive, or a referrer whose subject is gone).
+
+- **Governed by** — [retention-lifecycle](specs/retention-lifecycle/spec.md) ([RETAIN-004] *Expired-bundle Prune_Candidate*, [RETAIN-008] *Unarchived-manifest Prune_Candidate*)
+- **Implemented in** — `cli/cairn_cli/_prune_eligibility.py`
+
 ### TimestampProvider
 
 The signing-timestamp strategy configured in SSM: `system-clock` (built) or `rfc3161` (deferred — backlog `rfc3161-tsa-and-lta`).
