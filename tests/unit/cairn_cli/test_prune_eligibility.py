@@ -219,7 +219,7 @@ def test_index_records_only_remnant_resumes() -> None:
     d = w.add_bundle(archived_at=archived)
     w.images.clear()
     w.versions.clear()
-    # Scenario (change delta; becomes a Covers marker at archive): [RETAIN-010.04]
+    # Covers: RETAIN-010.04
     c = _classify(w, d)
     assert c.eligible
     assert "only index records" in c.reason
@@ -376,7 +376,7 @@ def _subject_prefix(subject: str) -> str:
 @pytest.mark.parametrize("kind", ["signature", "tag-schema-index"])
 def test_referrer_of_an_absent_but_archived_subject_is_retained(kind: str) -> None:
     """[RETAIN-008] item 2: the subject's own prefix must also be empty."""
-    # Scenario (change delta; becomes a Covers marker at archive): [RETAIN-008.07]
+    # Covers: RETAIN-008.07
     w = World()
     gone = digest_of("archived-subject")
     w.put_version(f"{_subject_prefix(gone)}manifest.json")
@@ -417,7 +417,7 @@ def _tag_index(w: World, label: str, subject: str) -> str:
 
 def test_attestation_chain_of_an_absent_archived_bundle_is_retained() -> None:
     """SigA -> A -> S with S and A gone from ECR and S still archived."""
-    # Scenario (change delta; becomes a Covers marker at archive): [RETAIN-008.08]
+    # Covers: RETAIN-008.08
     w = World()
     s = digest_of("content-manifest-S")
     a = digest_of("attestation-A")
@@ -723,7 +723,7 @@ def _forge_archived_referrer(w: World, subject: str, *, archived_at: datetime) -
 @pytest.mark.parametrize("b_evidence", ["s3-and-index", "s3-only", "index-only"])
 def test_expired_bundle_with_an_archived_referrer_is_refused(b_evidence: str) -> None:
     """[RETAIN-012] B (subject=A) under retention keeps A's tree, so B stays intact."""
-    # Scenario (change delta; becomes a Covers marker at archive): [RETAIN-010.05]
+    # Covers: RETAIN-010.05
     w = World()
     w.add_other_project_row()
     a = w.add_bundle()  # expired
