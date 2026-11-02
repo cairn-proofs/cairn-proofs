@@ -6,6 +6,7 @@ import {
   BlockPublicAccess,
   ObjectOwnership,
   StorageClass,
+  TransitionDefaultMinimumObjectSize,
 } from 'aws-cdk-lib/aws-s3';
 import { Construct } from 'constructs';
 import { Naming } from '../naming';
@@ -28,6 +29,12 @@ export interface ArchiveProps {
    */
   readonly isProd: boolean;
   readonly kmsKey: IKey;
+  /**
+   * Expiration of the access-log bucket's objects, in days. The stack passes
+   * the retention period so the S3 access logs cover a bundle's whole
+   * retention and its prune (access-control [ACCESS-004], M10).
+   */
+  readonly accessLogRetentionDays: number;
 }
 
 /**
@@ -47,8 +54,14 @@ export interface ArchiveProps {
  * not here, so this construct provisions only the bucket and its retention /
  * encryption / access-logging posture.
  *
- * Access logs are written to a dedicated logging bucket whose own retention
- * is short (90d) to bound noisy log accumulation.
+ * Access logs are written to a dedicated logging bucket whose objects expire
+ * after `accessLogRetentionDays` (the deployment's retention period), so the
+ * access record outlives every bundle it describes.
+ *
+ * The archive bucket has transitions only and no expiration rule of any kind
+ * ([RETAIN-006]). S3 Bucket Keys stay OFF: the pruner's receipt-copy
+ * `kms:Decrypt` grant is conditioned on the object-ARN encryption context,
+ * which S3 uses only when Bucket Keys are disabled.
  */
 export class Archive extends Construct {
   readonly bucket: Bucket;
@@ -57,7 +70,7 @@ export class Archive extends Construct {
   constructor(scope: Construct, id: string, props: ArchiveProps) {
     super(scope, id);
 
-    const { naming, wormEnabled, isProd, kmsKey } = props;
+    const { naming, wormEnabled, isProd, kmsKey, accessLogRetentionDays } = props;
 
     // S3 bucket names are GLOBALLY unique. The frozen per-deployment appName
     // token (drawn from the unambiguous alphabet) supplies that uniqueness — two
@@ -75,7 +88,7 @@ export class Archive extends Construct {
       objectOwnership: ObjectOwnership.BUCKET_OWNER_PREFERRED,
       lifecycleRules: [
         {
-          expiration: Duration.days(90),
+          expiration: Duration.days(accessLogRetentionDays),
         },
       ],
       removalPolicy: statefulRemovalPolicy(isProd),
@@ -88,12 +101,15 @@ export class Archive extends Construct {
       objectLockEnabled: wormEnabled,
       encryption: BucketEncryption.KMS,
       encryptionKey: kmsKey,
+      bucketKeyEnabled: false,
       blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
       enforceSSL: true,
       serverAccessLogsBucket: this.accessLogBucket,
       serverAccessLogsPrefix: 'access/',
       removalPolicy: statefulRemovalPolicy(isProd),
       autoDeleteObjects: !isProd,
+      // Receipt copies (under 128 KB) must never transition, so `cairn prune` can always read them.
+      transitionDefaultMinimumObjectSize: TransitionDefaultMinimumObjectSize.ALL_STORAGE_CLASSES_128_K,
       lifecycleRules: [
         {
           id: 'standard-to-glacier-ir-then-deep-archive',

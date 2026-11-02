@@ -603,6 +603,104 @@ def test_cleanup_referrer_purge_is_best_effort_when_api_unavailable() -> None:
 
 
 # ---------------------------------------------------------------------------
+# BundleCleanup — ECR deletes run as the integration-test cleanup role
+# ([ACCESS-010]: the repository policy admits only the pruner and that role)
+# ---------------------------------------------------------------------------
+
+_CLEANUP_ROLE = "arn:aws:iam::000000000000:role/cairnproofs4af-integ-cleanup-cmh-alpha"
+
+
+class _FakeSts:
+    def __init__(self, fail: bool = False) -> None:
+        self.assumed: list[dict] = []
+        self.fail = fail
+
+    def assume_role(self, **kwargs) -> dict:
+        if self.fail:
+            raise RuntimeError("AccessDenied: not authorized to perform sts:AssumeRole")
+        self.assumed.append(kwargs)
+        return {
+            "Credentials": {
+                "AccessKeyId": "AKIA",
+                "SecretAccessKey": "secret",
+                "SessionToken": "token",
+            }
+        }
+
+
+class _CallerSession:
+    """The contributor's session: its ECR must never be used for deletes."""
+
+    def __init__(self, sts: _FakeSts, caller_ecr: _FakeEcr) -> None:
+        self._sts = sts
+        self._ecr = caller_ecr
+
+    def client(self, name: str):
+        if name == "sts":
+            return self._sts
+        if name == "ecr":
+            return self._ecr
+        return _NoopClient()
+
+
+def _stack_with_cleanup_role(role: str | None) -> StackOutputs:
+    from dataclasses import replace
+
+    return replace(_stack_outputs(), cleanup_role_arn=role)
+
+
+def test_cleanup_deletes_images_as_the_cleanup_role() -> None:
+    content = "sha256:" + "a" * 64
+    referrer = "sha256:" + "b" * 64
+    role_ecr = _FakeEcr({content: [referrer]})
+    caller_ecr = _FakeEcr({})
+    sts = _FakeSts()
+    made: list[dict] = []
+
+    def factory(**kwargs):
+        made.append(kwargs)
+        return _FakeSession(role_ecr)
+
+    cleanup = BundleCleanup(
+        aws_session=_CallerSession(sts, caller_ecr),
+        stack=_stack_with_cleanup_role(_CLEANUP_ROLE),
+        session_factory=factory,
+    )
+    cleanup.track_ecr_manifest("artifact-cmh-alpha/mvp-tenant", content)
+    cleanup.run()
+
+    assert sts.assumed and sts.assumed[0]["RoleArn"] == _CLEANUP_ROLE
+    assert made[0]["aws_session_token"] == "token"
+    assert made[0]["region_name"] == _REGION
+    assert role_ecr.deleted == [referrer, content]
+    assert caller_ecr.deleted == []
+
+
+def test_cleanup_fails_loudly_when_the_cleanup_role_cannot_be_assumed() -> None:
+    caller_ecr = _FakeEcr({})
+    cleanup = BundleCleanup(
+        aws_session=_CallerSession(_FakeSts(fail=True), caller_ecr),
+        stack=_stack_with_cleanup_role(_CLEANUP_ROLE),
+    )
+    cleanup.track_ecr_manifest("artifact-cmh-alpha/mvp-tenant", "sha256:" + "a" * 64)
+    with pytest.raises(RuntimeError, match="AssumeRole"):
+        cleanup.run()
+    assert caller_ecr.deleted == []
+
+
+def test_cleanup_uses_the_caller_session_when_no_cleanup_role_is_published() -> None:
+    caller_ecr = _FakeEcr({})
+    sts = _FakeSts()
+    cleanup = BundleCleanup(
+        aws_session=_CallerSession(sts, caller_ecr), stack=_stack_with_cleanup_role(None)
+    )
+    cleanup.track_ecr_manifest("artifact-cmh-alpha/mvp-tenant", "sha256:" + "a" * 64)
+    cleanup.run()
+    assert sts.assumed == []
+    assert caller_ecr.deleted == ["sha256:" + "a" * 64]
+
+
+# ---------------------------------------------------------------------------
 # _read_pinned_digest — SENTINEL guard
 # ---------------------------------------------------------------------------
 
