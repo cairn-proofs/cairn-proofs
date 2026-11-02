@@ -48,7 +48,28 @@ export interface LambdaFunctionsProps {
   readonly serviceKmsKey: IKey;
   readonly signingProfile: ISigningProfile;
   readonly timestampProviderParam: IStringParameter;
+  /**
+   * SSM path of the stack-written retention-period parameter ([RETAIN-007]).
+   * archive-to-s3 reads it at runtime by name, with no label or version
+   * selector, and fails the archive closed when it is invalid.
+   */
+  readonly retentionParamName: string;
 }
+
+/**
+ * DynamoDB item actions the pipeline may use. None of them deletes: no
+ * pipeline role holds `dynamodb:DeleteItem` or `dynamodb:BatchWriteItem`
+ * (`BatchWriteItem` cannot be limited to puts), so only the pruner removes an
+ * index row (access-control [ACCESS-007.02]).
+ */
+const DDB_READ_WRITE_ACTIONS = [
+  'dynamodb:GetItem',
+  'dynamodb:PutItem',
+  'dynamodb:UpdateItem',
+  'dynamodb:Query',
+  'dynamodb:DescribeTable',
+];
+const DDB_WRITE_ACTIONS = ['dynamodb:PutItem', 'dynamodb:UpdateItem', 'dynamodb:DescribeTable'];
 
 /**
  * The four pipeline Lambdas — wires Stream B handler code (lambda-bundles/*)
@@ -97,6 +118,7 @@ export class LambdaFunctions extends Construct {
       serviceKmsKey,
       signingProfile,
       timestampProviderParam,
+      retentionParamName,
     } = props;
 
     // ── Shared scoped resource patterns ──────────────────────────────────
@@ -173,6 +195,15 @@ export class LambdaFunctions extends Construct {
               'kms:ViaService': `sqs.${stackRegion}.amazonaws.com`,
             },
           },
+        }),
+      );
+
+    // Explicit, delete-free DynamoDB grant on one table (base table + any GSI).
+    const grantTableItems = (fn: LambdaFn, table: ITable, actions: string[]) =>
+      fn.addToRolePolicy(
+        new PolicyStatement({
+          actions,
+          resources: [table.tableArn, `${table.tableArn}/index/*`],
         }),
       );
 
@@ -281,7 +312,7 @@ export class LambdaFunctions extends Construct {
     // mint stage reads (and reads it back for its own re-tag short-circuit).
     // Without this grant + env var, the write silently no-ops and nothing is
     // ever tagged.
-    metadataTable.grantReadWriteData(this.validateBundle);
+    grantTableItems(this.validateBundle, metadataTable, DDB_READ_WRITE_ACTIONS);
     // ECR auth token must be * (AWS docs); other ECR reads scoped to the
     // qualifier's artifact-* repos.
     this.validateBundle.addToRolePolicy(
@@ -316,6 +347,16 @@ export class LambdaFunctions extends Construct {
       }),
     );
     addScopedKmsDecrypt(this.validateBundle);
+    // The marker write encrypts under the table's CMK — DynamoDB-mediated only.
+    this.validateBundle.addToRolePolicy(
+      new PolicyStatement({
+        actions: ['kms:Encrypt', 'kms:ReEncrypt*', 'kms:GenerateDataKey*'],
+        resources: [serviceKmsKey.keyArn],
+        conditions: {
+          StringEquals: { 'kms:ViaService': `dynamodb.${stackRegion}.amazonaws.com` },
+        },
+      }),
+    );
     // DLQ-write path: validate-bundle uses the narrow `kms:GenerateDataKey`
     // helper above so async-invoke failures land on the SQS DLQ. The other
     // three Lambdas already have `kms:GenerateDataKey*` via
@@ -418,7 +459,7 @@ export class LambdaFunctions extends Construct {
       }),
     );
     timestampProviderParam.grantRead(this.signBundle);
-    metadataTable.grantWriteData(this.signBundle);
+    grantTableItems(this.signBundle, metadataTable, DDB_WRITE_ACTIONS);
     addScopedKmsEncryptDecrypt(this.signBundle);
 
     // ── archive-to-s3 ─────────────────────────────────────────────────────
@@ -439,10 +480,29 @@ export class LambdaFunctions extends Construct {
         ...baseEnv,
         ARCHIVE_BUCKET: archiveBucket.bucketName,
         WORM_ENABLED: wormEnabled ? 'true' : 'false',
+        RETENTION_PERIOD_PARAM: retentionParamName,
       },
     });
     eventBus.bus.grantPutEventsTo(this.archiveToS3);
-    archiveBucket.grantPut(this.archiveToS3);
+    // Explicit object writes only: PutObject plus the per-object Object Lock
+    // retention header. Never `grantPut`, which would add
+    // s3:PutObjectLegalHold ([ACCESS-009] — no pipeline role sets or clears a
+    // legal hold).
+    this.archiveToS3.addToRolePolicy(
+      new PolicyStatement({
+        actions: ['s3:PutObject', 's3:PutObjectRetention'],
+        resources: [archiveBucket.arnForObjects('*')],
+      }),
+    );
+    // The retention period, read by exact name ([RETAIN-007]).
+    this.archiveToS3.addToRolePolicy(
+      new PolicyStatement({
+        actions: ['ssm:GetParameter'],
+        resources: [
+          `arn:${stackPartition}:ssm:${stackRegion}:${stackAccount}:parameter${retentionParamName}`,
+        ],
+      }),
+    );
     archiveBucket.grantRead(this.archiveToS3);
     this.archiveToS3.addToRolePolicy(
       new PolicyStatement({
@@ -499,8 +559,8 @@ export class LambdaFunctions extends Construct {
         CONTROLS_TABLE_NAME: controlsTable.tableName,
       },
     });
-    metadataTable.grantReadWriteData(this.updateMetadata);
-    controlsTable.grantReadWriteData(this.updateMetadata);
+    grantTableItems(this.updateMetadata, metadataTable, DDB_READ_WRITE_ACTIONS);
+    grantTableItems(this.updateMetadata, controlsTable, DDB_READ_WRITE_ACTIONS);
     addScopedKmsEncryptDecrypt(this.updateMetadata);
 
     // ── mint-tag (pipeline TAIL — post-archive canonical tag minting) ─────

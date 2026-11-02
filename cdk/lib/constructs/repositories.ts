@@ -1,10 +1,9 @@
-import { Duration } from 'aws-cdk-lib';
 import {
   ImageTagMutabilityExclusionFilter,
   Repository,
   TagMutability,
-  TagStatus,
 } from 'aws-cdk-lib/aws-ecr';
+import { AnyPrincipal, Effect, PolicyStatement } from 'aws-cdk-lib/aws-iam';
 import { IKey } from 'aws-cdk-lib/aws-kms';
 import { Construct } from 'constructs';
 import { Naming } from '../naming';
@@ -53,7 +52,30 @@ export interface RepositoriesProps {
    * auto-empty.
    */
   readonly isProd: boolean;
+  /**
+   * Principal ARNs the repository policy admits for `ecr:BatchDeleteImage`
+   * ([ACCESS-010] item 1): the project's pruner role and, on a non-production
+   * stack only, the integration-test cleanup role and the stack deployment
+   * role (for the `emptyOnDelete` teardown). Each must be a resolvable ARN —
+   * no literal `${AWS::...}` placeholder.
+   */
+  readonly imageDeleteExceptionArns: string[];
+  /**
+   * The stack deployment role (the synthesizer's CloudFormation execution
+   * role) — the only principal admitted for repository deletion and lifecycle
+   * / repository-policy changes ([ACCESS-010] item 3).
+   */
+  readonly deploymentRoleArn: string;
 }
+
+/** Actions only the stack deployment may perform on an artifact repository. */
+export const DEPLOYMENT_ONLY_REPOSITORY_ACTIONS = [
+  'ecr:DeleteRepository',
+  'ecr:PutLifecyclePolicy',
+  'ecr:DeleteLifecyclePolicy',
+  'ecr:SetRepositoryPolicy',
+  'ecr:DeleteRepositoryPolicy',
+];
 
 /**
  * Single ECR repository per project, addressed through the uniform three-segment
@@ -77,22 +99,22 @@ export interface RepositoriesProps {
  * (`_als`/`_chn`) is mutable via the exclusion filters above.
  * KMS encryption with the customer-managed key ([ENCRYPT-002]).
  *
- * Lifecycle rule ([INGEST-027]): remove untagged manifests after 90 days. The
- * WORM_Receipt gating ("only after the receipt referrer is attached") is
- * enforced at the producer-pipeline layer rather than via ECR lifecycle policy
- * — ECR lifecycle has no native way to inspect referrers. The pipeline relies
- * on archive-to-s3 emitting the receipt before any untagged manifest can age
- * into the lifecycle window.
+ * No lifecycle policy ([RETAIN-006]): every referrer the pipeline writes is
+ * untagged, and an ECR lifecycle rule cannot see referrers or receipts, so no
+ * rule can tell junk from evidence. Untagged manifests stay until an operator
+ * prunes them with `cairn prune`.
  *
- * In-flight (archived-but-not-yet-tagged) safety: a manifest is
- * pushed UNTAGGED and only receives its
- * canonical tag at the pipeline TAIL (the post-archive mint-tag Lambda). So a
- * bundle is legitimately untagged for the full validate → sign → archive →
- * mint latency (seconds to a few minutes in practice; minutes even under
- * retry/DLQ re-drive). The 90-day window comfortably exceeds that latency by
- * orders of magnitude, so an in-flight artifact can never age into the
- * lifecycle window and be reaped before mint applies its tag. Do NOT shorten
- * this window below the worst-case end-to-end-through-mint latency.
+ * Stack-owned repository policy ([ACCESS-010]). Every exception is an
+ * `aws:PrincipalArn` condition on a Deny, never `NotPrincipal`:
+ * - `ecr:BatchDeleteImage` is denied to everyone except the pruner role (and,
+ *   non-production only, the integration-test cleanup role and the stack
+ *   deployment role, which the `emptyOnDelete` teardown runs as);
+ * - `ecr:UpdateImageStorageClass` (the archive storage class) is denied to
+ *   everyone;
+ * - repository deletion and lifecycle / repository-policy changes are denied to
+ *   everyone except the stack deployment role, so the deploy and the
+ *   non-production `emptyOnDelete` teardown keep working.
+ * The policy contains no Allow, so it grants nothing cross-account.
  */
 export class Repositories extends Construct {
   readonly repository: Repository;
@@ -100,7 +122,21 @@ export class Repositories extends Construct {
   constructor(scope: Construct, id: string, props: RepositoriesProps) {
     super(scope, id);
 
-    const { naming, orgId, tenantId, projectId, kmsKey, isProd } = props;
+    const {
+      naming,
+      orgId,
+      tenantId,
+      projectId,
+      kmsKey,
+      isProd,
+      imageDeleteExceptionArns,
+      deploymentRoleArn,
+    } = props;
+    if (imageDeleteExceptionArns.length === 0) {
+      throw new Error(
+        'imageDeleteExceptionArns must name the pruner role ([ACCESS-010] item 1).',
+      );
+    }
 
     // Repo path = {artifactNamespace}/{org-id}/{tenant-id}/{project-id} =
     // {appName}-artifact-{qualifier}/{org-id}/{tenant-id}/{project-id}.
@@ -117,11 +153,31 @@ export class Repositories extends Construct {
       removalPolicy: statefulRemovalPolicy(isProd),
     });
 
-    this.repository.addLifecycleRule({
-      description:
-        'Remove untagged manifests after 90 days. WORM_Receipt presence is enforced upstream.',
-      tagStatus: TagStatus.UNTAGGED,
-      maxImageAge: Duration.days(90),
-    });
+    this.repository.addToResourcePolicy(
+      new PolicyStatement({
+        sid: 'DenyImageDeleteExceptPruner',
+        effect: Effect.DENY,
+        principals: [new AnyPrincipal()],
+        actions: ['ecr:BatchDeleteImage'],
+        conditions: { ArnNotEquals: { 'aws:PrincipalArn': imageDeleteExceptionArns } },
+      }),
+    );
+    this.repository.addToResourcePolicy(
+      new PolicyStatement({
+        sid: 'DenyArchiveStorageClass',
+        effect: Effect.DENY,
+        principals: [new AnyPrincipal()],
+        actions: ['ecr:UpdateImageStorageClass'],
+      }),
+    );
+    this.repository.addToResourcePolicy(
+      new PolicyStatement({
+        sid: 'DenyRepositoryChangesExceptDeployment',
+        effect: Effect.DENY,
+        principals: [new AnyPrincipal()],
+        actions: DEPLOYMENT_ONLY_REPOSITORY_ACTIONS,
+        conditions: { ArnNotEquals: { 'aws:PrincipalArn': deploymentRoleArn } },
+      }),
+    );
   }
 }

@@ -310,3 +310,81 @@ def test_record_controls_same_control_two_catalogs_writes_distinct_rows(
     assert len(page_b.items) == 1
     assert page_a.items[0]["catalogOrProfileUuid"] == CATALOG_UUID
     assert page_b.items[0]["catalogOrProfileUuid"] == other_uuid
+
+
+# --- per-item PutItem (no BatchWriteItem; access-control [ACCESS-007.02]) ---
+
+
+class _RecordingTable:
+    """Stand-in Table that records put_item calls and can fail on the Nth one."""
+
+    def __init__(self, fail_on: int | None = None) -> None:
+        self.puts: list[dict] = []
+        self.fail_on = fail_on
+
+    def put_item(self, *, Item: dict) -> dict:
+        from botocore.exceptions import ClientError
+
+        if self.fail_on is not None and len(self.puts) == self.fail_on:
+            raise ClientError(
+                {"Error": {"Code": "ProvisionedThroughputExceededException", "Message": "slow"}},
+                "PutItem",
+            )
+        self.puts.append(Item)
+        return {}
+
+    def batch_writer(self, *a, **kw):  # pragma: no cover — must never be called
+        raise AssertionError("record_controls must not use BatchWriteItem")
+
+
+class _Resource:
+    def __init__(self, table: _RecordingTable) -> None:
+        self._table = table
+
+    def Table(self, name: str) -> _RecordingTable:
+        return self._table
+
+
+def test_record_controls_writes_one_put_item_per_control_and_is_idempotent(
+    dynamodb_resource,
+) -> None:
+    table = _RecordingTable()
+    idx = ControlClaims(CONTROL_CLAIMS_TABLE_NAME, dynamodb_resource=_Resource(table))
+    args = dict(
+        tenant_id=TENANT,
+        manifest_digest=DIGEST,
+        catalog_or_profile_uuid=CATALOG_UUID,
+        controls=["au-4", "ac-2"],
+        denormalized={},
+    )
+    assert idx.record_controls(**args) == 2
+    assert [p["sk"] for p in table.puts] == [
+        f"{CATALOG_UUID}#ac-2#{DIGEST}",
+        f"{CATALOG_UUID}#au-4#{DIGEST}",
+    ]
+
+    # Re-delivery against the real (moto) table converges to the same rows.
+    real = _make_index(dynamodb_resource)
+    real.record_controls(**args)
+    real.record_controls(**args)
+    rows = dynamodb_resource.Table(CONTROL_CLAIMS_TABLE_NAME).scan()["Items"]
+    assert len(rows) == 2
+
+
+def test_record_controls_surfaces_a_failed_put() -> None:
+    import pytest
+    from botocore.exceptions import ClientError
+
+    table = _RecordingTable(fail_on=1)
+    idx = ControlClaims(CONTROL_CLAIMS_TABLE_NAME, dynamodb_resource=_Resource(table))
+    with pytest.raises(ClientError) as excinfo:
+        idx.record_controls(
+            tenant_id=TENANT,
+            manifest_digest=DIGEST,
+            catalog_or_profile_uuid=CATALOG_UUID,
+            controls=["ac-2", "ac-3", "au-4"],
+            denormalized={},
+        )
+    assert excinfo.value.response["Error"]["Code"] == "ProvisionedThroughputExceededException"
+    # The first row landed; the failure stopped the fan-out rather than being skipped.
+    assert len(table.puts) == 1

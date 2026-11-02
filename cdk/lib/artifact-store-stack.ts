@@ -1,4 +1,4 @@
-import { Aspects, CfnOutput, Stack, StackProps } from 'aws-cdk-lib';
+import { Aspects, CfnOutput, DefaultStackSynthesizer, Stack, StackProps } from 'aws-cdk-lib';
 import { StringParameter } from 'aws-cdk-lib/aws-ssm';
 import { Construct } from 'constructs';
 import { Naming } from './naming';
@@ -17,6 +17,29 @@ import { Signing } from './constructs/signing';
 import { IamPolicyTemplates } from './constructs/iam-roles';
 import { LambdaFunctions } from './constructs/lambda-functions';
 import { ProductionTeardownGuard } from './constructs/removal-policy';
+
+/** Retention period bounds in days ([RETAIN-007] item 1): 1 day to 99 × 365. */
+export const RETENTION_PERIOD_DAYS = { default: 2555, min: 1, max: 36135 } as const;
+/** Unarchived-manifest window bounds in days ([RETAIN-007] item 2). */
+export const UNARCHIVED_MANIFEST_WINDOW_DAYS = { default: 30, min: 1, max: 365 } as const;
+
+/**
+ * Synth-time bounds check for a whole-number-of-days setting. Throws before any
+ * resource is constructed, so an out-of-bounds value provisions nothing.
+ */
+export function validateDaySetting(
+  name: string,
+  value: number,
+  bounds: { readonly min: number; readonly max: number },
+): number {
+  if (!Number.isInteger(value) || value < bounds.min || value > bounds.max) {
+    throw new Error(
+      `${name} must be a whole number of days from ${bounds.min} to ${bounds.max} ` +
+        `([RETAIN-007]); got ${value}.`,
+    );
+  }
+  return value;
+}
 
 export interface ArtifactStoreStackProps extends StackProps {
   /**
@@ -68,6 +91,47 @@ export interface ArtifactStoreStackProps extends StackProps {
    * posture is `isProd || alarmActionsEnabled`. Defaults to false.
    */
   readonly alarmActionsEnabled?: boolean;
+  /**
+   * Retention period in days ([RETAIN-007]): every archived bundle's
+   * Retain_Until is its archive timestamp plus this many days. Default 2,555
+   * (7 years); bounds 1 to 36,135 (99 years), checked at synth.
+   */
+  readonly retentionPeriodDays?: number;
+  /**
+   * Unarchived-manifest window in days ([RETAIN-008]): a manifest younger than
+   * this is never an unarchived-manifest Prune_Candidate. Default 30; bounds 1
+   * to 365, checked at synth.
+   */
+  readonly unarchivedManifestWindowDays?: number;
+  /**
+   * IAM user ARNs in the deployment account that may assume the per-project
+   * pruner role ([ACCESS-007]). Must be non-empty.
+   */
+  readonly prunerPrincipalArns: string[];
+  /**
+   * IAM user or role ARNs in the deployment account that may assume the
+   * non-production integration-test cleanup role ([ACCESS-010] item 1).
+   * Defaults to `prunerPrincipalArns`. Ignored when `isProd` is true.
+   */
+  readonly integCleanupPrincipalArns?: string[];
+}
+
+/**
+ * Replace the CloudFormation pseudo-parameter placeholders that the default
+ * synthesizer leaves in its role ARNs (`${AWS::Partition}` and, for an
+ * environment-agnostic stack, `${AWS::AccountId}` / `${AWS::Region}`) with the
+ * stack's own tokens. A placeholder left as a literal inside a policy document
+ * is never substituted by CloudFormation, so an `aws:PrincipalArn` condition
+ * built from it would match no principal.
+ */
+export function resolveSynthesizerArn(stack: Stack, arn: string): string {
+  return arn
+    .split('${AWS::Partition}')
+    .join(stack.partition)
+    .split('${AWS::AccountId}')
+    .join(stack.account)
+    .split('${AWS::Region}')
+    .join(stack.region);
 }
 
 export class ArtifactStoreStack extends Stack {
@@ -93,6 +157,37 @@ export class ArtifactStoreStack extends Stack {
     const { appName, regionCode, stage, orgId, tenantId, projectId, isProd, wormEnabled, notificationEmail } =
       props;
     const qualifier = `${regionCode}-${stage}`;
+
+    // [RETAIN-007]: reject an out-of-bounds setting before any resource exists.
+    const retentionPeriodDays = validateDaySetting(
+      'retentionPeriodDays',
+      props.retentionPeriodDays ?? RETENTION_PERIOD_DAYS.default,
+      RETENTION_PERIOD_DAYS,
+    );
+    const unarchivedManifestWindowDays = validateDaySetting(
+      'unarchivedManifestWindowDays',
+      props.unarchivedManifestWindowDays ?? UNARCHIVED_MANIFEST_WINDOW_DAYS.default,
+      UNARCHIVED_MANIFEST_WINDOW_DAYS,
+    );
+    if (props.prunerPrincipalArns.length === 0) {
+      throw new Error(
+        'prunerPrincipalArns must name at least one designated pruner principal ([ACCESS-007]).',
+      );
+    }
+    // The stack deployment role is the synthesizer's CloudFormation execution
+    // role — the one exception in the [ACCESS-010] repository policy for
+    // repository deletion and lifecycle / repository-policy changes. Only the
+    // default synthesizer names it, so fail closed under any other.
+    if (!(this.synthesizer instanceof DefaultStackSynthesizer)) {
+      throw new Error(
+        'ArtifactStoreStack requires the DefaultStackSynthesizer: the [ACCESS-010] ' +
+          'repository policy exempts its CloudFormation execution role.',
+      );
+    }
+    const deploymentRoleArn = resolveSynthesizerArn(
+      this,
+      this.synthesizer.cloudFormationExecutionRoleArn,
+    );
 
     // WORM_Enabled (S3 Object Lock) requires production retention: an
     // Object-Lock bucket cannot be auto-emptied / DESTROYed on teardown, so it
@@ -127,20 +222,12 @@ export class ArtifactStoreStack extends Stack {
       notificationEmail,
     });
 
-    this.repositories = new Repositories(this, 'Repositories', {
-      naming,
-      orgId,
-      tenantId,
-      projectId,
-      isProd,
-      kmsKey: this.encryption.serviceKey,
-    });
-
     this.archive = new Archive(this, 'Archive', {
       naming,
       isProd,
       wormEnabled,
       kmsKey: this.encryption.serviceKey,
+      accessLogRetentionDays: retentionPeriodDays,
     });
 
     this.metadataTable = new MetadataTable(this, 'MetadataTable', {
@@ -176,9 +263,33 @@ export class ArtifactStoreStack extends Stack {
 
     this.logGroups = new LogGroups(this, 'LogGroups', { naming, isProd });
 
+    // The retention period, published for the archive stage to read at
+    // runtime, and the unarchived-manifest window, read by `cairn prune`
+    // ([RETAIN-007]). Only the stack deployment writes them: the Operator is
+    // denied every write ([ACCESS-009] item 3), and any change raises a
+    // [RETAIN-013] alarm.
+    const retentionParamName = naming.ssmPath(stage, 'retention/period-days');
+    new StringParameter(this, 'RetentionPeriodDaysParam', {
+      parameterName: retentionParamName,
+      stringValue: String(retentionPeriodDays),
+      description:
+        'Retention period in days ([RETAIN-007]). archive-to-s3 computes Retain_Until from it.',
+    });
+    const windowParamName = naming.ssmPath(stage, 'retention/unarchived-manifest-window-days');
+    new StringParameter(this, 'UnarchivedManifestWindowDaysParam', {
+      parameterName: windowParamName,
+      stringValue: String(unarchivedManifestWindowDays),
+      description: 'Unarchived-manifest window in days ([RETAIN-008]), read by cairn prune.',
+    });
+    const archiveFunctionName = naming.nameFor('archive-to-s3');
+
     this.eventBus = new EventBus(this, 'EventBus', {
       naming,
       alarmTopic: this.notifications.alarmTopic,
+      archiveBucketName: this.archive.bucket.bucketName,
+      retentionParamName,
+      windowParamName,
+      archiveFunctionName,
     });
 
     this.signing = new Signing(this, 'Signing', { naming, stage });
@@ -193,7 +304,58 @@ export class ArtifactStoreStack extends Stack {
       metadataTable: this.metadataTable.table,
       kmsKey: this.encryption.serviceKey,
       reviewerSignoffProfileArn: this.signing.reviewerSignoffProfileArn,
+      controlsTable: this.controlClaimsTable.table,
+      pruneAuditLogGroup: this.logGroups.pruneAudit,
+      retentionParamName,
+      windowParamName,
+      archiveFunctionName,
+      retentionAlarmRules: this.eventBus.retentionAlarmRules,
+      alarmTopic: this.notifications.alarmTopic,
+      prunerPrincipalArns: props.prunerPrincipalArns,
+      integCleanupPrincipalArns: props.integCleanupPrincipalArns ?? props.prunerPrincipalArns,
+      isProd,
     });
+
+    // The repository is built after the IAM roles: its stack-owned policy
+    // ([ACCESS-010]) names the pruner and cleanup roles as exceptions. On a
+    // non-production stack the deployment role is an image-delete exception
+    // too, because `emptyOnDelete` teardown deletes the remaining images as
+    // that role. A production stack retains its repository and needs none.
+    const cleanupRole = this.iamPolicyTemplates.integrationCleanupRole;
+    this.repositories = new Repositories(this, 'Repositories', {
+      naming,
+      orgId,
+      tenantId,
+      projectId,
+      isProd,
+      kmsKey: this.encryption.serviceKey,
+      imageDeleteExceptionArns: [
+        this.iamPolicyTemplates.prunerRole.roleArn,
+        ...(cleanupRole ? [cleanupRole.roleArn] : []),
+        ...(isProd ? [] : [deploymentRoleArn]),
+      ],
+      deploymentRoleArn,
+    });
+
+    // `cairn prune` discovery ([RETAIN-011], [ACCESS-007]).
+    new StringParameter(this, 'PruneAuditLogGroupParam', {
+      parameterName: naming.ssmPath(stage, 'prune/audit-log-group'),
+      stringValue: this.logGroups.pruneAudit.logGroupName,
+      description: 'Name of the never-expiring prune audit log group ([RETAIN-011]).',
+    });
+    new StringParameter(this, 'PrunerRoleArnParam', {
+      parameterName: naming.ssmPath(stage, 'prune/pruner-role-arn'),
+      stringValue: this.iamPolicyTemplates.prunerRole.roleArn,
+      description: 'ARN of the per-project pruner role ([ACCESS-007]).',
+    });
+    if (cleanupRole) {
+      new StringParameter(this, 'IntegrationCleanupRoleArnParam', {
+        parameterName: naming.ssmPath(stage, 'integration/cleanup-role-arn'),
+        stringValue: cleanupRole.roleArn,
+        description:
+          'ARN of the non-production integration-test cleanup role ([ACCESS-010] item 1).',
+      });
+    }
 
     // SSM Parameter Store — the canonical surface for cross-stack and
     // cross-system value sharing per the CDK conventions in AGENTS.md
@@ -396,6 +558,7 @@ export class ArtifactStoreStack extends Stack {
       serviceKmsKey: this.encryption.serviceKey,
       signingProfile: this.signing.signingProfile,
       timestampProviderParam: this.signing.timestampProviderParam,
+      retentionParamName,
     });
 
     // Alarms are constructed AFTER LambdaFunctions because the
