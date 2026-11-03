@@ -1,6 +1,6 @@
 # Cairn Proofs
 
-**Keep the whole body of artifacts that govern and document your security posture in a form no one can quietly alter, lose, or dispute. An outside auditor can verify it without taking your word for it.**
+**Keep the whole body of artifacts behind your security GRC program in a form no one can quietly alter, lose, or dispute. An outside auditor can verify it without taking your word for it.**
 
 A compliance program runs on far more than evidence. It runs on a whole body of artifacts:
 
