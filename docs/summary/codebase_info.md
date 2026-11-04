@@ -20,7 +20,7 @@ validation, signing, archival, metadata indexing, and tag minting.
 
 | Concern | Technology | Pin |
 |---|---|---|
-| Infrastructure | TypeScript CDK | Node 24, TypeScript ~5.4, aws-cdk-lib ^2.170 |
+| Infrastructure | TypeScript CDK | Node 26, TypeScript ~5.9, aws-cdk-lib ^2.170 |
 | Lambdas, shared libraries, CLI | Python | 3.12 (`>=3.12,<3.13`) |
 | Python packaging | uv workspace | members: `cli`, `lambdas/*`, `libs/*` |
 | Toolchain manager | mise | pins every runtime and tool in `mise.toml` |

@@ -68,3 +68,6 @@ openspec/changes/**/*.tc.json
 
 # Kiro spec task-runner state (local)
 .kiro/specs/**/tasks.meta.json
+
+# Local report written by `mise run update-deps`
+.update-deps-report.txt

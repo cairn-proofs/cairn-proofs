@@ -5,8 +5,8 @@
 | Field | Value |
 |---|---|
 | Model | `add-dependency-update-task.tc.json` |
-| Model SHA-256 | `3a87eea25d21d1fe4b9d95816b6392daee52fc5cb33c94e663f248a1cb65119b` |
-| Gate | FAILED |
+| Model SHA-256 | `c3b508f3c34c9e78f71eee80bc718674b0baf90858eafab5a1e3cf63df6735dd` |
+| Gate | PASSED |
 | Threats | 65 |
 | Mitigations | 29 |
-| Assumptions | 24 |
+| Assumptions | 25 |

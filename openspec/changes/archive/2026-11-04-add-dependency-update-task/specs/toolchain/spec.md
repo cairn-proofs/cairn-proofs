@@ -166,7 +166,7 @@ THE project SHALL provide a `lock-audit` task in `check.depends` that reads `uv.
 
 ### Requirement: [TOOLS-022] Lambda Bundle Build Is Isolated From Ambient Configuration
 
-`cdk/scripts/build-lambdas.sh` SHALL run uv with only PATH, HOME, TMPDIR and LANG, with `--no-config` and the default index `https://pypi.org/simple`. It SHALL install third-party packages with `--only-binary :all:`. It SHALL build workspace members with a build backend from a hashed `build` dependency group in `uv.lock`. It SHALL write the SHA-256 of `uv.lock` into `BUILD-INFO.json` in each bundle.
+`cdk/scripts/build-lambdas.sh` SHALL run every uv command with only PATH, HOME, TMPDIR and LANG. It SHALL run `uv pip install` with `--no-config` and the default index `https://pypi.org/simple`, and SHALL install third-party packages with `--only-binary :all:`. It SHALL build workspace members with a build backend from a hashed `build` dependency group in `uv.lock`. It SHALL write the SHA-256 of `uv.lock` into `BUILD-INFO.json` in each bundle.
 
 #### Scenario: [TOOLS-022.01] UV variables do not change the build
 - **WHEN** `UV_INDEX_URL`, `UV_EXTRA_INDEX_URL` or `UV_NO_VERIFY_HASHES` is set in the caller's environment

@@ -10,7 +10,7 @@
 ```mermaid
 graph TB
     subgraph Toolchain["mise.toml — runtimes & tools"]
-        NODE["Node 24"]
+        NODE["Node 26"]
         PY["Python 3.12"]
         UV["uv"]
         AWSCLI["aws CLI"]

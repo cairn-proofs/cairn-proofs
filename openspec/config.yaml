@@ -10,7 +10,7 @@ context: |
   DynamoDB (metadata index), EventBridge-driven Lambda pipeline.
 
   Implementation: TypeScript CDK (cdk/) + Python 3.12 (Lambdas, libs,
-  CLI). Language runtimes pinned via mise.toml (Node 24, Python 3.12);
+  CLI). Language runtimes pinned via mise.toml (Node 26, Python 3.12);
   Python deps managed by uv as a workspace; pre-commit wires ruff and
   `openspec validate --specs --strict`.
 

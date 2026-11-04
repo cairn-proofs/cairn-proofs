@@ -74,7 +74,7 @@ A per-deployment `WORM_Enabled` boolean (default `false`) gates the Artifact Sto
 
 ### Toolchain
 
-[mise](https://mise.jdx.dev/) manages the full toolchain via `mise.toml` — language runtimes (Node 24, Python 3.12) and project tools (`uv`, `aws` CLI, `pre-commit`, `openspec`). Run `mise install` once; everything pinned in `mise.toml` lands on PATH via `mise activate`. See `README.md` "Local development".
+[mise](https://mise.jdx.dev/) manages the full toolchain via `mise.toml` — language runtimes (Node 26, Python 3.12) and project tools (`uv`, `aws` CLI, `pre-commit`, `openspec`). Run `mise install` once; everything pinned in `mise.toml` lands on PATH via `mise activate`. See `README.md` "Local development".
 
 Add new project tools to `mise.toml`, not per-machine `brew install` / `curl | sh`. Mise's backend coverage is broad — `npm:` for npm CLIs (e.g. `"npm:@fission-ai/openspec"`), the `aws-cli` plugin, and `ubi`/`aqua`/`asdf` for most else. Fall back to per-machine installation only when mise has no working backend.
 
@@ -91,6 +91,8 @@ Individual subtasks for narrower iteration:
 - `mise run spec-validate` — openspec strict validation
 - `mise run cdk-typecheck` / `mise run cdk-test` — CDK gates
 - `mise run cdk-synth` — CDK synth (on-demand; intentionally NOT in `check`)
+- `mise run lock-audit` — offline lockfile source and integrity audit (in `check`)
+- `mise run update-deps` — refresh `uv.lock` and `cdk/package-lock.json`, then run `check` (needs network; not in `check`; see `DEVELOPING.md` "Updating dependencies")
 
 Narrower test invocations (inherit the `-n auto` default unless overridden):
 

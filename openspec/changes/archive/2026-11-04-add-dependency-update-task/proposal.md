@@ -23,9 +23,9 @@ A routine refresh also pulls in new third-party releases, so the refresh itself 
 8. `cdk/scripts/build-lambdas.sh` installs each Lambda's dependencies from `uv.lock`, with hash verification for third-party packages and for the build backend. It ignores ambient uv configuration, installs third-party packages from wheels only, and records the lock digest in each bundle. The build fails if `uv.lock` is out of date with the manifests.
 9. When the `CI` environment variable is set, `build-lambdas.sh` and `deploy.sh` fail on uncommitted changes to source and lockfiles. They do not check this on developer machines.
 10. `cdk/scripts/deploy.sh` and the `cdk-install` task install the CDK dependencies with `npm ci --ignore-scripts`.
-11. Bump the Node runtime pin in `mise.toml` from 24 to 26 (Active LTS), and `@types/node` from `^20` to `^26` to match. Update the documents that name Node 24.
+11. Bump the Node runtime pin in `mise.toml` from 24 to 26 (Active LTS), `@types/node` from `^20` to `^26` to match, and `typescript` from `~5.4` to `~5.9`, because `@types/node` 26 does not compile under TypeScript 5.4 or 5.5. Update the documents that name Node 24.
 12. Run `mise run update-deps` once and commit the refreshed lockfiles, so the tests run against current versions.
-13. When implementation is complete, file GitHub issues for three items outside this change: the deliberate major-version catch-up of the CDK dev dependencies (jest 29, @types/jest 29, typescript 5.4); the `--require-approval never` setting of `cdk deploy`; and a known-vulnerability scan of the locked dependencies.
+13. When implementation is complete, file GitHub issues for two items outside this change: the deliberate major-version catch-up of the CDK dev dependencies (jest 29, @types/jest 29); and a known-vulnerability scan of the locked dependencies.
 
 Deploy-visible effect: the first deploy after this change ships the versions in the refreshed `uv.lock` (item 12) instead of the versions resolved at build time. The refresh applies the cooldown, so it can select older versions than a refresh without one.
 
@@ -50,7 +50,7 @@ None.
 ## Impact
 
 1. New: `tools/update_deps.py` (stdlib only) and `tests/unit/tools/test_update_deps.py`; `update-deps` and `lock-audit` tasks in `mise.toml`.
-2. Changed: `cdk/scripts/build-lambdas.sh` (install from the exported lock, isolation, CI check); `cdk/scripts/deploy.sh` (`--ignore-scripts`, CI check); every member `pyproject.toml` that declares a third-party dependency (bounds); the root `pyproject.toml` (`[tool.uv] exclude-newer`, a `build` dependency group); `cdk/package.json` (`@types/node`); `mise.toml` (Node 26, `cdk-install`, `check.depends`); `.gitignore` (`.update-deps-report.txt`).
+2. Changed: `cdk/scripts/build-lambdas.sh` (install from the exported lock, isolation, CI check); `cdk/scripts/deploy.sh` (`--ignore-scripts`, CI check); every member `pyproject.toml` that declares a third-party dependency (bounds); the root `pyproject.toml` (`[tool.uv] exclude-newer`, a `build` dependency group); `cdk/package.json` (`@types/node`, `typescript`); `mise.toml` (Node 26, `cdk-install`, `check.depends`); `.gitignore` (`.update-deps-report.txt`).
 3. Refreshed: `uv.lock`, `cdk/package-lock.json`.
 4. Documents that name Node 24 or the contributor workflow: `AGENTS.md`, `DEVELOPING.md`, `openspec/config.yaml` (context text), `cdk/scripts/deploy.sh` (comment), `runbooks/deploy-alpha.md`, `docs/summary/codebase_info.md`, `docs/summary/dependencies.md`.
 5. Deployed Lambdas: the dependency versions change to the refreshed lock at the next deploy. No infrastructure change.
