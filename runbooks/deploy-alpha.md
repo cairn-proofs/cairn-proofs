@@ -26,7 +26,7 @@ The script is idempotent. Re-runs without source changes are no-ops at the Cloud
 
 | Requirement | Why | How |
 |---|---|---|
-| `mise install` complete + `uv sync` in the repo | Node 24 + Python 3.12 + `uv` + `aws` CLI + `openspec` all on PATH | See [Local development](../README.md#local-development) |
+| `mise install` complete + `uv sync` in the repo | Node 26 + Python 3.12 + `uv` + `aws` CLI + `openspec` all on PATH | See [Local development](../README.md#local-development) |
 | AWS credentials for account `123456789012` | Target of the `cmh-alpha` stack | `aws sts get-caller-identity` should report this account |
 | Privileges sufficient for the stack's resource surface | CloudFormation, IAM, KMS, ECR, S3, DynamoDB, Lambda, EventBridge, Signer, SNS, SQS, SSM, CloudWatch Logs | Use an admin role for first deploy |
 | `gpg` 2.2+ | Build-time signature verification of the AWS Signer plugin | `brew install gnupg` (macOS) / `apt-get install gnupg` (Debian) |
@@ -138,7 +138,7 @@ The script:
 1. Runs the CloudTrail management-event preflight (above).
 2. Builds the Notation layer if `lambda-layers/notation/build/notation-layer.zip` is absent.
 3. Bundles each Lambda package into `lambda-bundles/<name>/` via `cdk/scripts/build-lambdas.sh`.
-4. Runs `npm ci --silent` against `cdk/package-lock.json`.
+4. Runs `npm ci --ignore-scripts --silent` against `cdk/package-lock.json`.
 5. Runs `npx cdk synth --quiet` (typecheck + CloudFormation template generation).
 6. Runs the CloudTrail delete data-event preflight (above) against the synthesized stack name.
 7. Runs `npx cdk deploy --all --require-approval never` with the preflight result threaded through as a CDK context value.

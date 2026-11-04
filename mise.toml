@@ -1,5 +1,5 @@
 [tools]
-node = "24"
+node = "26"
 python = "3.12"
 uv = "latest"
 aws = "latest"
@@ -95,6 +95,23 @@ description = "Stable spec-identifier linter (presence/uniqueness/no-reuse/refs-
 # so `check` fails closed. See openspec/specs/toolchain/spec.md (TOOLS-013).
 run = "python3 openspec/tools/spec_ids.py"
 
+[tasks.lock-audit]
+description = "Audit uv.lock and cdk/package-lock.json for source and integrity (offline)"
+# Fails when a lockfile records a package from a source other than the default
+# registry, or without a hash or integrity value. Workspace members must be
+# editable or virtual; bundled npm entries are covered by their parent's integrity.
+# Reads files only, so it needs no network. See tools/update_deps.py and
+# openspec/specs/toolchain/spec.md (TOOLS-021).
+run = "python3 tools/update_deps.py --audit-locks"
+
+[tasks.update-deps]
+description = "Refresh uv.lock and cdk/package-lock.json (7-day cooldown, no major bumps), then run the gate"
+# Re-resolves both lockfiles inside the declared ranges, prints what changed, then
+# runs `mise run check`. Restores both lockfiles on any failure before the gate.
+# Needs network access. Starts only from lockfiles that match HEAD. See DEVELOPING.md
+# and openspec/specs/toolchain/spec.md (TOOLS-014 to TOOLS-020).
+run = "python3 tools/update_deps.py"
+
 [tasks.semgrep]
 description = "Semgrep SAST (Python workspace + TypeScript CDK) — offline, vendored rules"
 # Scans against rule CONTENT vendored under tools/semgrep/rules/ (committed,
@@ -118,12 +135,16 @@ description = "Gitleaks secret detection (full git history) — offline, embedde
 run = "gitleaks git --no-banner --redact"
 
 [tasks.tm-gate]
-description = "Fail-closed threat-model archive gate for a change (usage: mise run tm-gate <change>)"
+description = "Fail-closed threat-model gate for a change (usage: mise run tm-gate <change>)"
 run = "uv run python openspec/tools/tc.py gate"
 
 [tasks.tm-reconcile]
-description = "Reconcile a change's threat model (usage: mise run tm-reconcile <change> -- --shipped all)"
+description = "Print the threat-model status changes that a change's checked tasks justify (usage: mise run tm-reconcile <change>)"
 run = "uv run python openspec/tools/tc.py reconcile"
+
+[tasks.tm-report]
+description = "Write a change's sanitized threat-model report (usage: mise run tm-report <change> [-- --check])"
+run = "uv run python openspec/tools/tc.py report"
 
 [tasks.tm-render]
 description = "Render a change's threat-model Mermaid DFD/architecture diagrams to embedded PNGs (usage: mise run tm-render <change>)"
@@ -138,9 +159,9 @@ description = "Re/deploy the CDK app"
 run = "./cdk/scripts/deploy.sh"
 
 [tasks.cdk-install]
-description = "npm ci for CDK (cached on lockfile)"
+description = "npm ci --ignore-scripts for CDK (cached on lockfile)"
 dir = "cdk"
-run = "npm ci"
+run = "npm ci --ignore-scripts"
 sources = ["package.json", "package-lock.json"]
 outputs = ["node_modules/.package-lock.json"]
 
@@ -199,5 +220,5 @@ done
 
 [tasks.check]
 description = "Full pre-merge pipeline (Python + CDK + specs)"
-depends = ["lint", "fmt-check", "test", "spec-validate", "spec-ids", "cdk-typecheck", "cdk-test", "semgrep", "gitleaks"]
+depends = ["lint", "fmt-check", "test", "spec-validate", "spec-ids", "lock-audit", "cdk-typecheck", "cdk-test", "semgrep", "gitleaks"]
 run = "true"

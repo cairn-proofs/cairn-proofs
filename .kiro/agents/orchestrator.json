@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/kiro-agent.json",
   "name": "orchestrator",
-  "description": "OpenSpec change orchestrator for Cairn Proofs. The main session for the opsx-* flows (explore, propose, apply, verify, archive). In the opsx-apply workflow it runs the full-gate step: it confirms the review verdict and the all_done task state, runs mise run check, and runs the threat-model reconcile and gate. Spawns the code-reviewer, security-reviewer, tester, code-simplifier, threat-model, and spec-writer specialists without a confirmation prompt.",
+  "description": "OpenSpec change orchestrator for Cairn Proofs. The main session for the opsx-* flows (explore, propose, apply, verify, archive). In the opsx-apply workflow it runs the full-gate step: it confirms the review verdict and the all_done task state, runs mise run check, and runs the threat-model reconcile and gate. Spawns the code-reviewer, security-reviewer, tester, code-simplifier, system-modeler, threat-analyst, defender, and spec-writer specialists without a confirmation prompt.",
   "tools": [
     "*"
   ],
@@ -81,11 +81,13 @@
         "match": [
           "code-reviewer",
           "code-simplifier",
+          "defender",
           "implementer",
           "security-reviewer",
           "spec-writer",
+          "system-modeler",
           "tester",
-          "threat-model"
+          "threat-analyst"
         ],
         "effect": "allow"
       },

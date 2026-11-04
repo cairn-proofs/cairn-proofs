@@ -5,7 +5,7 @@ description = "Bundle validation and cross-checks for the Cairn Provenance_Syste
 requires-python = ">=3.12,<3.13"
 dependencies = [
   "cairn-oci",
-  "pydantic>=2.5.0",
+  "pydantic>=2.13.4,<3",
 ]
 
 [tool.uv.sources]

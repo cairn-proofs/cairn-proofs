@@ -56,7 +56,7 @@ curl https://mise.run | sh   # other unix
 # Then enable shell activation per https://mise.jdx.dev/installing-mise.html#shells
 # (mise activate runs automatically when entering directories with a mise.toml).
 
-# 2. Provision the entire pinned toolchain (Node 24, Python 3.12, uv, aws,
+# 2. Provision the entire pinned toolchain (Node 26, Python 3.12, uv, aws,
 #    pre-commit, openspec, mermaid-cli) into mise's per-tool install dirs:
 mise install
 
@@ -111,10 +111,12 @@ The full task inventory (also visible via `mise tasks`):
 | `spec-ids`      | `python3 openspec/tools/spec_ids.py` — stable spec-identifier linter |     yes     |
 | `semgrep`       | `semgrep scan` offline against vendored rules in `tools/semgrep/rules/` (Python workspace + CDK) |     yes     |
 | `gitleaks`      | `gitleaks git` secret detection over full git history (offline, embedded rules) |     yes     |
-| `cdk-install`   | `npm ci` in `cdk/` (cached on `package.json` + `package-lock.json`) | transitively|
+| `lock-audit`    | `python3 tools/update_deps.py --audit-locks` — lockfile source and integrity audit (offline) |     yes     |
+| `cdk-install`   | `npm ci --ignore-scripts` in `cdk/` (cached on `package.json` + `package-lock.json`) | transitively|
 | `cdk-typecheck` | `npm run build` (tsc) in `cdk/`                  |     yes     |
 | `cdk-test`      | `npm test` (jest) in `cdk/`                      |     yes     |
 | `cdk-synth`     | `npx cdk synth --quiet` in `cdk/`                |  **no**     |
+| `update-deps`   | `python3 tools/update_deps.py` — refresh both lockfiles, then run `check` (needs network) |  **no**     |
 
 `lint` carries the security dimension for Python. `pyproject.toml` enables Ruff's `flake8-bandit` (`S`) rule group. Bandit-class rules therefore ride the existing `lint` subtask rather than a standalone tool. Ruff stays the single Python linter. `semgrep` is the SAST gate over both the Python workspace and the TypeScript CDK app. It scans **offline** against rule content vendored under `tools/semgrep/rules/`. The scan never resolves the mutable `p/` registry at scan time. Refreshing those vendored rules is a deliberate, reviewable re-vendor commit. The procedure and provenance live in [`tools/semgrep/README.md`](tools/semgrep/README.md). Semgrep installs via mise's `pipx` backend, so `mise install` remains the whole setup story — no extra per-machine step.
 
@@ -125,6 +127,22 @@ The full task inventory (also visible via `mise tasks`):
 The CDK app is **not bootstrapped** by checkout. An operator with appropriate IAM permissions runs bootstrap (`cdk bootstrap aws://<account>/us-east-2`) once per AWS account. A developer machine cannot run it without those credentials. See `runbooks/deploy-alpha.md` for the procedure.
 
 `WORM_Enabled` is hard-coded to `false` in the `cmh-alpha` stack (`cdk/bin/artifact-store.ts`). See [`worm-archive`](openspec/specs/worm-archive/spec.md) for the canonical behavior.
+
+## Updating dependencies
+
+`mise run update-deps` refreshes the third-party dependencies of every uv workspace member, the root `dev` group, and the CDK app in one run. It re-resolves `uv.lock` and `cdk/package-lock.json` inside the declared ranges, prints each changed package, and then runs `mise run check`. It needs network access, and it starts only from lockfiles that match `HEAD`.
+
+- **No major-version bumps.** Every third-party direct dependency declares an upper bound below its next major version (`>=8.2.7,<9`; a 0.x package gets `<1`). The run fails, and names the package, when a range admits the next major or a manifest uses a form that the check cannot read. A major bump is a deliberate manifest edit: make it, re-lock, and commit both before the next `update-deps` run, because the run starts only from lockfiles that match `HEAD` and treats a major change against `HEAD` as a failure. Transitive dependencies follow the ranges that their dependents declare. The change report lists them, so a transitive major move is visible.
+- **7-day cooldown.** `[tool.uv] exclude-newer = "7 days"` in the root `pyproject.toml` keeps every `uv lock` on releases that are at least 7 days old. The update task reads that value and applies the same cutoff to npm. To take a newer release of one Python package, for example a security fix, add it to `exclude-newer-package` in the same table. For one npm package, install the version directly with `npm install NAME@VERSION` outside `update-deps`.
+- **No package code runs during resolution.** The task runs `uv lock --upgrade --no-build` and `npm update --package-lock-only --ignore-scripts`, with a minimal environment (`PATH`, `HOME`, `TMPDIR`, `LANG`, `TERM`, `XDG_*`, `MISE_*`) for every child process. A dependency that has only a source distribution fails the run. The run also fails when `uv.toml`, `.npmrc`, `pip.conf` or `[tool.uv]` sets a package index or registry.
+- **All or nothing.** Any failure or termination signal before the gate restores both lockfiles and names the package or step. If a restore itself fails, or the process is killed with SIGKILL, run `git restore uv.lock cdk/package-lock.json`. The next run refuses to start while a lockfile has uncommitted changes, and only one run exists at a time.
+- **The report.** The change report prints before the gate. The run also writes it, the lock-audit result, the SHA-256 of both lockfiles before and after, and the restore result to `.update-deps-report.txt`, which git ignores. A gate failure keeps the updated lockfiles so that you can read the failing subtask next to the report. Review `git diff uv.lock cdk/package-lock.json` before you commit.
+
+`mise run lock-audit` runs offline and is part of `check`. It fails when a lockfile records a package from a source other than PyPI or the npm registry, a file without a hash or integrity value, or a git, file or link source. Workspace members must be editable or virtual. A dependency that npm bundles inside its parent package is exempt, because the parent's integrity value covers it. `update-deps` also runs `npm audit signatures` and restores the lockfiles when it fails.
+
+`cdk/scripts/build-lambdas.sh` builds each Lambda bundle from `uv.lock`: the versions are the locked ones, and the third-party packages install from hashed wheels only. It builds the workspace members with a hashed build backend (the `build` dependency group), and it ignores `UV_*` variables and user uv configuration. Each bundle carries a `BUILD-INFO.json` with the SHA-256 of `uv.lock`. The build fails, and leaves no bundle for that Lambda, when `uv.lock` is out of date with the manifests (run `uv lock`) or a hash does not match.
+
+When the `CI` environment variable is set to a non-empty value, `build-lambdas.sh` fails on uncommitted changes under `lambdas/`, `libs/`, `cli/`, `uv.lock` and `pyproject.toml`, and `deploy.sh` fails when `uv.lock`, `cdk/package-lock.json`, `cdk/package.json` or `pyproject.toml` differs from `HEAD`. Neither script runs these checks on a developer machine. `deploy.sh` and `cdk-install` install the CDK dependencies with `npm ci --ignore-scripts`, so no npm lifecycle script runs.
 
 ## How to change the system
 

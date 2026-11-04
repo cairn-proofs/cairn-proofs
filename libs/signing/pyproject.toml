@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Thin wrapper around Notation CLI for AWS Signer pipeline signing in the Cairn Provenance_System"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-  "boto3>=1.34.0",
+  "boto3>=1.43.14,<2",
 ]
 
 [build-system]

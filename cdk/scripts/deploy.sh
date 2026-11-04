@@ -6,7 +6,7 @@
 # `cairnproofs4af-cmh-alpha`. No hardcoded stack name here.
 #
 # Preconditions:
-#   - mise environment active (Node 24 + Python 3.12 + aws CLI + uv on PATH).
+#   - mise environment active (Node 26 + Python 3.12 + aws CLI + uv on PATH).
 #     mise loads the gitignored root .env, which supplies the deployment
 #     account and region as CAIRN_ALPHA_ACCOUNT / CAIRN_ALPHA_REGION (see
 #     .env.example). The account/region are NOT hard-coded here.
@@ -35,6 +35,23 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 REPO_ROOT="$(cd .. && pwd)"
+
+# ── CI only: deploy committed lockfiles ([TOOLS-023]) ───────────────────────
+# A CI checkout is clean by construction, so a difference means that an earlier CI
+# step changed a lockfile or manifest. Developer machines skip this check on purpose.
+if [[ -n "${CI:-}" ]]; then
+  LOCKED_FILES=(uv.lock cdk/package-lock.json cdk/package.json pyproject.toml)
+  git_status=0
+  git -C "${REPO_ROOT}" diff --quiet HEAD -- "${LOCKED_FILES[@]}" || git_status=$?
+  if [[ "${git_status}" -eq 1 ]]; then
+    echo "ERROR: CI deploy with lockfiles or manifests that differ from HEAD:" >&2
+    git -C "${REPO_ROOT}" diff --stat HEAD -- "${LOCKED_FILES[@]}" >&2
+    exit 1
+  elif [[ "${git_status}" -ne 0 ]]; then
+    echo "ERROR: CI deploy could not run 'git diff' to compare the lockfiles with HEAD." >&2
+    exit 1
+  fi
+fi
 
 # ── CloudTrail preflight ────────────────────────────────────────────────────
 # Default to "passed" (CDK reads via --context); demote to
@@ -152,7 +169,7 @@ echo "==> Bundling Lambda function packages"
 "${REPO_ROOT}/cdk/scripts/build-lambdas.sh"
 
 echo "==> npm install (cached on package-lock.json)"
-npm ci --silent
+npm ci --ignore-scripts --silent
 
 echo "==> CDK synth (typecheck + CFN generation)"
 npx cdk synth --quiet

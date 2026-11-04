@@ -74,7 +74,7 @@ A per-deployment `WORM_Enabled` boolean (default `false`) gates the Artifact Sto
 
 ### Toolchain
 
-[mise](https://mise.jdx.dev/) manages the full toolchain via `mise.toml` — language runtimes (Node 24, Python 3.12) and project tools (`uv`, `aws` CLI, `pre-commit`, `openspec`). Run `mise install` once; everything pinned in `mise.toml` lands on PATH via `mise activate`. See `README.md` "Local development".
+[mise](https://mise.jdx.dev/) manages the full toolchain via `mise.toml` — language runtimes (Node 26, Python 3.12) and project tools (`uv`, `aws` CLI, `pre-commit`, `openspec`). Run `mise install` once; everything pinned in `mise.toml` lands on PATH via `mise activate`. See `README.md` "Local development".
 
 Add new project tools to `mise.toml`, not per-machine `brew install` / `curl | sh`. Mise's backend coverage is broad — `npm:` for npm CLIs (e.g. `"npm:@fission-ai/openspec"`), the `aws-cli` plugin, and `ubi`/`aqua`/`asdf` for most else. Fall back to per-machine installation only when mise has no working backend.
 
@@ -91,6 +91,8 @@ Individual subtasks for narrower iteration:
 - `mise run spec-validate` — openspec strict validation
 - `mise run cdk-typecheck` / `mise run cdk-test` — CDK gates
 - `mise run cdk-synth` — CDK synth (on-demand; intentionally NOT in `check`)
+- `mise run lock-audit` — offline lockfile source and integrity audit (in `check`)
+- `mise run update-deps` — refresh `uv.lock` and `cdk/package-lock.json`, then run `check` (needs network; not in `check`; see `DEVELOPING.md` "Updating dependencies")
 
 Narrower test invocations (inherit the `-n auto` default unless overridden):
 
@@ -190,7 +192,7 @@ When a change is in flight, the spec deltas at `openspec/changes/<name>/specs/<c
 
 ### Code-change workflow
 
-Every change to source or infrastructure follows this pipeline. The specialist roles are `code-reviewer`, `security-reviewer`, `tester`, `code-simplifier`, `threat-model`, `spec-writer`, and `implementer`. Each harness defines them under its own agent directory. Each harness also keeps its own execution detail, such as how it starts agents, runs work in parallel, and retries, in its own configuration. This section says what each phase does, not how a harness does it.
+Every change to source or infrastructure follows this pipeline. The specialist roles are `code-reviewer`, `security-reviewer`, `tester`, `code-simplifier`, `spec-writer`, and `implementer`, plus the `threat-model` skill with its `system-modeler`, `threat-analyst`, and `defender` agents. Each harness defines them under its own agent directory. Each harness also keeps its own execution detail, such as how it starts agents, runs work in parallel, and retries, in its own configuration. This section says what each phase does, not how a harness does it.
 
 1. **Spec gate.** If the change adds or modifies a Requirement, use `/openspec-propose`. For exploratory thinking first, use `/openspec-explore`.
 
@@ -213,7 +215,7 @@ Every change to source or infrastructure follows this pipeline. The specialist r
    - b. `code-reviewer`, `security-reviewer`, and `tester` at the same time, on the simplified diff. A Critical or High finding from a reviewer blocks the commit. `tester` fills coverage and edge-case gaps and adds regression tests. A harness without concurrency runs them one after another.
    - c. `mise run check`, the full pre-merge gate. The session that commits runs it.
 
-   To fix findings, give them to an implementation role, then run the gate again until it is clean. Do not restart implementation from the beginning. This pass is the only review and the only simplify for the change. If the change has a `threat-model.tc.json`, the session reconciles and gates it with `openspec/tools/tc.py` (`reconcile`, then `gate`) after `mise run check` passes and before the commit. Then `/openspec-verify-change` and `/openspec-archive-change` find it settled.
+   To fix findings, give them to an implementation role, then run the gate again until it is clean. Do not restart implementation from the beginning. This pass is the only review and the only simplify for the change. If the change has a private threat model at `threat-models/<change>.tc.json`, the session reconciles, gates, and reports it with `openspec/tools/tc.py` after `mise run check` passes and before the commit. `tc.py` only reads the model; the session applies status changes through the `threat-composer` MCP tools. Threat-model content stays in `threat-models/`, a separate private repository. Never copy it into this repository. Then `/openspec-verify-change` and `/openspec-archive-change` find it settled.
 
 4. **Commit.** Only the session that ran the full gate commits, and only when the user asks. Use Conventional Commits, no Co-Authored-By trailer, and named-file `git add` (never `git add -A`). Make one logical commit per change unit, and do not bundle unrelated work.
 

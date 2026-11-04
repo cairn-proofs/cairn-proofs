@@ -191,57 +191,35 @@ artifacts:
     requires:
       - proposal
   - id: threatmodel
-    description: A STRIDE-based threat model
-    generates: threat-model.tc.json
-    template: threat-model.tc.json
-    requires: 
+    description: A STRIDE-based threat model, kept private, with a sanitized public report
+    generates: threat-model-report.md
+    template: threat-model-report.md
+    requires:
       - specs
       - design
-    instruction: |        
-      - Invoke the `threat-model` subagent if any
-        spec deltas exist under `openspec/changes/<name>/specs/`. Pass it
-        `proposal.md`, `design.md`, and all spec deltas as input context.
-        The agent appends its STRIDE summary to `design.md` under a
-        `## Threats` section automatically.
-      - Critical/High residual-risk findings MUST loop back — the main
-        session amends the relevant spec deltas and `design.md` directly
-        (it already holds the `threat-model` agent's recommendations in
-        context, and editing a change's own delta is part of the propose
-        flow), then re-invokes the `threat-model` subagent on the revised
-        draft. Repeat until no Critical/High residual-risk findings remain.
-      - Medium/Low residual-risk findings carry forward as additional
-        context for the tasks generation prompt below, so the resulting
-        tasks reflect the mitigations (additional tasks, ordering
-        constraints, or explicit cross-reference to threat IDs).
-      - Threat/mitigation status uses Threat Composer BUILT-IN fields, set by
-        the `threat-model` agent per its contract — the single source for those
-        rules is the `threat-model` agent's own definition ("Per-threat/Per-mitigation
-        fields" section): every threat starts `threatIdentified`; a mitigation is
-        `mitigationResolved` only if its control already exists, else
-        `mitigationIdentified`; `mitigationLinks` tie each mitigation to the
-        threat(s) whose acceptable residual depends on it; residual lives in
-        `custom:residualRisk` (no invented "pending"/"resolved" markers). The
-        orchestrator never hand-edits these — the loop-back above and the
-        reconcile/gate below are the only state transitions. These two
-        mechanical, fail-closed operations are
-        performed by `openspec/tools/tc.py` (dependency-free), NOT by hand,
-        and `reconcile` is idempotent (it only advances mitigations *from*
-        `mitigationIdentified`, leaving human-set states untouched):
-        - `python3 openspec/tools/tc.py reconcile <change> --shipped
-          <mitigation-ids|all>` flips shipped mitigations to
-          `mitigationResolved` and cascades a threat to `threatResolved` once
-          all its linked mitigations are resolved and its residual is
-          acceptable. This runs at the END of a completed `apply` (see the
-          `apply` instruction), so the model is already reconciled before
-          verify/archive; `/opsx:verify` re-runs it (idempotent) as a
-          re-confirm and the human override point.
-        - `python3 openspec/tools/tc.py gate <change>` is the fail-closed gate
-          (non-zero exit if any Critical/High residual remains, or any
-          not-yet-resolved threat still depends on an unresolved mitigation).
-          It runs as a fail-fast at the end of `apply` AND again at
-          `/opsx:archive`.
-        Re-validate the file against the Threat Composer v1 schema after
-        `reconcile` writes it back.
+    instruction: |
+      Run the `threat-model` skill on this change. Its target is the change
+      itself: `proposal.md`, `design.md`, and every spec delta under `specs/`.
+      Use the model path `<change-name>.tc.json`. The `threat-composer` MCP
+      server writes the model to `threat-models/`, which is a separate, private
+      repository. Only the MCP tools write the model.
+
+      The model is private. Never copy threat, mitigation, asset, or system
+      text into a file in this repository. This rule applies to `design.md`,
+      `tasks.md`, the report, and commit messages.
+
+      - Loop-back: when the skill is done, run
+        `python3 openspec/tools/tc.py gate <change-name>`. If a High priority
+        threat has no mitigation, amend the spec deltas and `design.md` so that
+        a mitigation is possible. Then run the skill again to extend the model.
+        Repeat until no High priority threat is without a mitigation. At this
+        step, the gate also reports open threats that depend on mitigations
+        that are not built yet. That is expected; the apply step resolves them.
+      - Medium and Low priority findings carry forward as context for the tasks
+        artifact.
+      - Last, run `python3 openspec/tools/tc.py report <change-name>`. It writes
+        `threat-model-report.md`, which holds only counts, the gate result, and
+        the model hash. Do not edit the report.
   - id: tasks
     generates: tasks.md
     description: Implementation checklist with trackable tasks
@@ -261,6 +239,8 @@ artifacts:
       - Order the checklist so that each task comes after every task it depends on. A task depends on an earlier task when it needs that task's code, files, or migrations.
       - Ship each task's tests in the same task as the code they cover.
       - Name the files each task creates or changes when you know them. A harness that runs tasks in parallel uses these names to keep concurrent tasks on different files.
+      - Write every task in neutral language. Name the control or the code change, not the threat it addresses. Do not cite threat or mitigation ids. `tasks.md` is public; the threat model is private.
+      - After you write `tasks.md`, link the private model to it. Call `tm_get`, then call `tm_add_tags` with `kind: "mitigation"` for each open mitigation that a task in this change builds. Add one `task:<N.M>` tag for each task that builds it. Do not use `tm_update_mitigation` for this; it replaces the whole mitigation. A mitigation that a later change builds gets no `task:` tag. Then run `python3 openspec/tools/tc.py report <change-name>` again, because the model changed.
       - There is no review or simplify pass during implementation. `code-simplifier`, `code-reviewer`, `security-reviewer`, and `tester` run once, after every task is complete, on the cumulative diff (see the apply instruction).
 
       Reference specs for what needs to be built, design for how to build it.
@@ -275,7 +255,8 @@ apply:
     - tasks
   tracks: tasks.md
   instruction: |
-    Read context files (proposal, design, threat-model, specs, tasks).
+    Read context files (proposal, design, specs, tasks). The threat model is
+    private; read it through the `threat-composer` MCP tools only.
 
     Implement the checklist by following the `openspec-apply-change` skill. That skill is the authoritative task-loop procedure, including its `blocked` and `all_done` states and its checkbox rule.
 
@@ -289,25 +270,25 @@ apply:
     3. `mise run check`, the full pre-merge gate.
     To fix findings, give them to an implementer as input, then run the gate again until it is clean.
 
-    Then, BEFORE committing — and ONLY when every task is complete and the
-    change has a `threat-model.tc.json` (skip otherwise; a paused or partial
-    apply must NOT reconcile, because not all mitigations have shipped yet) —
-    reconcile and gate the threat model so it is already settled by the time
-    `/opsx:verify` and `/opsx:archive` run:
-    a. `python3 openspec/tools/tc.py reconcile "<change>" --shipped <ids>`,
-       where `<ids>` is the explicit set of mitigation ids whose implementing
-       tasks completed in THIS change (map them from the tasks that reference
-       each threat / mitigation id). Use `--shipped all` ONLY when every
-       still-`mitigationIdentified` mitigation in the model was in-scope for
-       this change — never blanket-`all` if a mitigation was deliberately
-       deferred to a future change, or it will be wrongly resolved. Re-validate
-       the rewritten file against the Threat Composer v1 schema
-       (`threat_modeling_validate_tc_schema`).
-    b. `python3 openspec/tools/tc.py gate "<change>"` as a fail-fast. A non-zero
-       exit means the change is NOT actually done — a Critical/High residual
-       remains, or a threat still depends on an unshipped/unresolved mitigation.
-       Surface it (see below) and do NOT mark the change complete or commit
-       until it is resolved.
+    Then, BEFORE committing, and ONLY when every task is complete and
+    `threat-models/<change-name>.tc.json` exists, reconcile and gate the
+    threat model. A paused or partial apply must NOT reconcile.
+    a. Run `python3 openspec/tools/tc.py reconcile <change-name>`. It reads the
+       checked tasks in `tasks.md` and the `task:` tags on the mitigations. It
+       writes nothing. It prints the mitigation ids to set to
+       `mitigationResolved` and the threat ids to set to `threatResolved`.
+       Exit code 2 means a `task:` tag names a task that is not in `tasks.md`.
+       Then apply nothing; fix the tags with `tm_remove_tags` and
+       `tm_add_tags`, and run it again.
+    b. Apply the printed changes with the MCP tool `tm_set_status`, then run
+       `tm_validate`.
+    c. Run `python3 openspec/tools/tc.py gate <change-name>`. A non-zero exit
+       means the change is NOT done: a High priority threat has no
+       mitigation, a threat depends on an unresolved mitigation, or a threat
+       has no valid priority. Surface it (see below). Do NOT mark the change
+       complete or commit until it is resolved.
+    d. Run `python3 openspec/tools/tc.py report <change-name>`, then
+       `python3 openspec/tools/tc.py report <change-name> --check`.
     Once the gate passes, the change is ready to commit when the user asks.
 
     Pause and surface to the user if you hit blockers, ambiguity, or a

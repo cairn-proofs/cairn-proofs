@@ -4,11 +4,11 @@ version = "0.1.0"
 description = "update-metadata Lambda: applies conditional DynamoDB writes for every evidence.* pipeline event"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-  "boto3>=1.34.0",
+  "boto3>=1.43.14,<2",
   "cairn-metadata",
   "cairn-oci",
   "cairn-observability",
-  "aws-lambda-powertools[metrics]>=3.0",
+  "aws-lambda-powertools[metrics]>=3.29.0,<4",
 ]
 
 [build-system]

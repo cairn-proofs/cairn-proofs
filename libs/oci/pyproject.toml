@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "OCI manifest types, Config_Blob schema, SHA-256 digest helpers, annotation/category constants for Cairn Provenance_System"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-  "pydantic>=2.5.0",
+  "pydantic>=2.13.4,<3",
 ]
 
 [build-system]

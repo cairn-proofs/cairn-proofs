@@ -273,9 +273,10 @@ def test_configure_tracing_otlp_exporter_uses_bounded_timeout(
     assert len(batch_processors) == 1
     exporter = batch_processors[0].span_exporter
     assert isinstance(exporter, OTLPSpanExporter)
-    # The OTLP HTTP exporter stores the per-export deadline as `_timeout`.
-    assert exporter._timeout == _OTLP_EXPORT_TIMEOUT_SEC, (
-        f"OTLPSpanExporter timeout {exporter._timeout!r} != bounded constant "
+    # The OTLP HTTP exporter keeps the per-export deadline on its HTTP client.
+    timeout = exporter._client._timeout
+    assert timeout == _OTLP_EXPORT_TIMEOUT_SEC, (
+        f"OTLPSpanExporter timeout {timeout!r} != bounded constant "
         f"{_OTLP_EXPORT_TIMEOUT_SEC!r} — the `timeout=` kwarg was dropped, "
         "reverting to the multi-second default backoff that scope-exit flush would block on"
     )

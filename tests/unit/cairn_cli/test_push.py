@@ -188,7 +188,7 @@ def _make_args(
     *,
     artifact_kind: str = "assessment-results",
     catalog_uuid: str | None = "11111111-1111-4111-8111-111111111111",
-    controls: list[str] | None | object = _UNSET,
+    controls: list[str] | object | None = _UNSET,
     assessment_period: str | None = "2026-q1",
     media_type_overrides: list[str] | None = None,
     org_id: str | None = "acme-co",
