@@ -27,6 +27,21 @@ Deploying:
 
 > **Threat-model diagram rendering:** The `threat-model` agent and `mise run tm-render` use `mmdc` (`@mermaid-js/mermaid-cli`) to render threat-model DFDs to PNG for the Threat Composer UI. `mise install` provisions the `mmdc` binary. Its headless browser is a **separate, one-time `mise run mmdc-setup`** (~160MB `chrome-headless-shell`). `mise install` deliberately does not auto-download the browser, so CI and `deploy.sh` never pay for it. This step is **dev-time only**, off the `deploy.sh` path and out of `mise run check`. It degrades gracefully if the browser is absent — diagram slots stay empty and threat models still validate. See [`docs/adr/0013-accept-chromium-dependency-for-threat-model-diagram-rendering.md`](docs/adr/0013-accept-chromium-dependency-for-threat-model-diagram-rendering.md).
 
+### System-level threat model
+
+The paragraph above covers the **per-change** `threat-model.tc.json` that the `threat-model` agent writes into each
+OpenSpec change — that one is committed with the change, in this repo. This repo's **overall, product-level**
+threat model is a separate artifact, kept in a private store rather than here (the same store every `cairn-proofs`
+public repo uses, one branch per repo):
+
+```bash
+THREAT_MODEL_STORE_URL=<url> scripts/setup-threat-model.sh
+```
+
+See internal onboarding for `THREAT_MODEL_STORE_URL`. This clones a private working copy into `./threat-models`
+(gitignored) — its root *is* the model, not a nested path. Open the `.tc.json` there with the Threat Composer VS
+Code extension or web app.
+
 ### Supported platforms
 
 Development is supported on **macOS and Linux** (including WSL2 on Windows). Native Windows is **not supported**: the build and deploy scripts (`cdk/scripts/*.sh`, `lambda-layers/notation/build.sh`) and the bash-based `mise` tasks assume a POSIX shell and standard Unix tools (`git`, `tar`, `mktemp`). macOS contributors also need `brew install flock`; see the "Concurrency-safe ambient state" notes in [AGENTS.md](AGENTS.md).
