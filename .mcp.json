@@ -5,6 +5,21 @@
       "command": "uvx",
       "args": ["mcp-server-for-oscal@latest"],
       "env": {}
+    },
+    "threat-composer": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": [
+        "--with",
+        "strands-agents-tools<0.9",
+        "--from",
+        "git+https://github.com/dfkunstler/threat-composer.git@feat/mcp-model-builder#subdirectory=packages/threat-composer-ai",
+        "threat-composer-ai-mcp"
+      ],
+      "env": {
+        "THREAT_COMPOSER_AI_MODEL_DIR": "threat-models",
+        "THREAT_COMPOSER_AI_MCP_TOOLS": "builder"
+      }
     }
   }
 }

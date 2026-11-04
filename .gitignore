@@ -61,6 +61,7 @@ private/
 # Private, org-wide system threat model (branch-per-repo in
 # cp-threat-models-private). See DEVELOPING.md.
 /threat-models/
+openspec/changes/**/*.tc.json
 
 # Kiro workflow run artifacts (review verdicts, gate logs)
 /openspec/workflow-runs/

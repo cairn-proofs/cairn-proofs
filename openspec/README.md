@@ -14,12 +14,12 @@ openspec/
 ├── specs/               CANONICAL specs — the intended steady state, one dir per capability
 │   └── <capability>/spec.md
 ├── changes/             In-flight changes — each a proposed delta to the specs
-│   ├── <change-name>/   Active change (proposal, design, specs deltas, threat model, tasks)
+│   ├── <change-name>/   Active change (proposal, design, specs deltas, threat-model report, tasks)
 │   └── archive/         Completed changes, dated YYYY-MM-DD-<name>, kept for provenance
 ├── schemas/             Custom workflow definitions (artifact pipelines)
 │   ├── cairn/           Default schema: proposal → specs → design → threat-model → tasks
 │   └── bugfix/          Defect schema: bugfix-analysis → design → tasks
-└── tools/               Helper scripts (threat-model gate/render)
+└── tools/               Helper scripts (threat-model reconcile/gate/report)
 ```
 
 ## The two halves: `specs/` vs `changes/`
@@ -51,7 +51,7 @@ Read-only inspection is fair game in any session without a slash command: `opens
 
 OpenSpec's stock flow is `proposal → specs → design → tasks`. We extend it:
 
-- **`cairn`** (the active schema, set in `config.yaml`) inserts a **threat-model checkpoint** between specs/design and tasks: `proposal → specs → design → threat-model.tc.json → tasks`. The `threat-model` subagent writes the threat model during `/openspec-propose`, so STRIDE findings shape requirements and task ordering *before* implementation. `apply` then implements the ordered `tasks.md` checklist and then runs the single simplify/review/test gate on the cumulative diff. See `schemas/cairn/schema.yaml` for the full per-artifact instructions.
+- **`cairn`** (the active schema, set in `config.yaml`) inserts a **threat-model checkpoint** between specs/design and tasks: `proposal → specs → design → threat-model-report.md → tasks`. The `threat-model` skill builds the threat model during `/openspec-propose`, so STRIDE findings shape requirements and task ordering *before* implementation. The model itself is private: the `threat-composer` MCP server writes it to `threat-models/<change>.tc.json`, a separate private repository. The change directory gets only `threat-model-report.md`, a sanitized summary (counts, gate result, model hash), and `tasks.md` uses neutral language with no threat ids. `apply` then implements the ordered `tasks.md` checklist and then runs the single simplify/review/test gate on the cumulative diff. See `schemas/cairn/schema.yaml` for the full per-artifact instructions.
 - **`bugfix`** is a leaner schema for defects: `bugfix-analysis → design → tasks`, where `bugfix.md` states Current/Expected/Unchanged behavior with `**WHEN**/**THEN**/**SHALL**` keywords that seed RED→GREEN→regression tests. Used via `/openspec-bugfix`.
 
 ## Harness compatibility (Claude Code + Kiro)
@@ -64,7 +64,7 @@ This repo drives the OpenSpec workflow from **two agent harnesses on a single br
 | **HOW** — execution mechanics | Per-harness execution. On Kiro, the saved `opsx-apply` workflow (`.kiro/workflows/opsx-apply.workflow.json`) runs implement, then the aggregate gate loop, then the full gate. For parallel implementation, Kiro generates a workflow for the change from its `tasks.md`; nothing in the repository schedules it. `AGENTS.md` stays harness-agnostic. | each harness's own configuration (Kiro: `.kiro/workflows/`, `.kiro/steering/`, `.kiro/agents/`) | **Yes** — each harness keeps its own execution detail; `AGENTS.md` stays harness-agnostic |
 | **Surfaces** — invocation + agents | The generated `openspec-*` skills and the specialist/orchestrator agent definitions | `.kiro/skills/openspec-*` + `.kiro/agents/*.json` (+ `.kiro/agent-prompts/*.md`) · `.claude/skills/openspec-*` + `.claude/agents/*.md` | **Yes** — parallel per-harness trees, same `/openspec-*` UX |
 
-The load-bearing rule: **the schema says *what* the workflow must accomplish and names no harness-specific primitive. `AGENTS.md` is harness-agnostic and holds the operating rules that every harness shares. Each harness's own configuration holds its execution detail** (on Kiro: the saved `opsx-apply` workflow, which runs implement, then the gate loop, then the full gate; Kiro-generated workflows for parallel implementation; the steering files; and the agent configs). `openspec instructions <artifact>` hands the schema instruction to whichever harness calls it. So anything harness-specific left in the schema (an `Agent` tool-use block, a `subagent` stage, `SendMessage`, `loop_to`) would leak into the *other* harness. That is a layering bug. The fix is to move it down into that harness's own configuration. For the same reason, cross-references name the **agent, not a tool path** (e.g. "the `threat-model` agent's contract", never a `.claude/`- or `.kiro/`-rooted file).
+The load-bearing rule: **the schema says *what* the workflow must accomplish and names no harness-specific primitive. `AGENTS.md` is harness-agnostic and holds the operating rules that every harness shares. Each harness's own configuration holds its execution detail** (on Kiro: the saved `opsx-apply` workflow, which runs implement, then the gate loop, then the full gate; Kiro-generated workflows for parallel implementation; the steering files; and the agent configs). `openspec instructions <artifact>` hands the schema instruction to whichever harness calls it. So anything harness-specific left in the schema (an `Agent` tool-use block, a `subagent` stage, `SendMessage`, `loop_to`) would leak into the *other* harness. That is a layering bug. The fix is to move it down into that harness's own configuration. For the same reason, cross-references name the **agent, not a tool path** (e.g. "the `threat-model` skill", never a `.claude/`- or `.kiro/`-rooted file).
 
 Why this needs no branches: every harness loads the same `AGENTS.md` and receives the same schema instructions, byte for byte, on every invocation. Only each harness's own configuration differs, and no harness reads another harness's configuration. Adding a third harness means a new configuration tree, and it leaves the schema, rules, and `AGENTS.md` untouched.
 
@@ -75,21 +75,21 @@ Why this needs no branches: every harness loads the same `AGENTS.md` and receive
 - **proposal** — must name a specific **persona goal/frustration** from `personas/personas.md` (or honestly state "Personas served: none" with a reason). When a change starts from a GitHub issue, cite the issue so `/openspec-archive-change` can close it with `Closes #N`.
 - **design** — must carry a mermaid **architecture and/or sequence diagram** (or `N/A — <reason>`). Decisions that change *no* Requirement go to `docs/adr/`, not inline.
 - **specs** — new `Capitalized_Underscore` terms must be added to `GLOSSARY.md` in the same change.
-- **threatmodel** — must include a Data Flow Diagram with explicit trust boundaries.
 
 ## Tools (`tools/`)
 
 | Script | Purpose |
 |--------|---------|
-| `tc.py` | Threat-model `reconcile` (flip shipped mitigations → resolved, cascade resolved threats) and `gate` (fail-closed: nonzero if any Critical/High residual or unresolved-mitigation dependency remains). Run at the end of `apply` and again at `archive`. Dependency-free. |
-| `tc_render.py` | Best-effort render of the threat model's mermaid DFD/architecture blocks to embedded PNGs (via `mmdc`) so it displays in Threat Composer. Fail-open. |
+| `tc.py` | Reads the private model and never writes it. `reconcile` prints the mitigation and threat status changes that the checked tasks justify, from `task:<N.M>` tags on the mitigations; the session applies them with the MCP tool `tm_set_status`. `gate` is fail-closed: nonzero if a threat has no valid `Priority`, a High threat has no mitigation, or an open threat depends on an unresolved mitigation. `report` writes the sanitized `threat-model-report.md`; `report --check` fails if it is stale. Run at the end of `apply`. Dependency-free. |
+| `tc_render.py` | No flow step calls it. Best-effort render of the threat model's mermaid DFD/architecture blocks to embedded PNGs (via `mmdc`) so it displays in Threat Composer. Fail-open. |
 | `provision-mmdc-browser.sh`, `mmdc-puppeteer.json` | Provision/config for the mermaid renderer used by `tc_render.py`. |
 
 Example:
 
 ```bash
-python3 openspec/tools/tc.py reconcile <change> --shipped <mitigation-ids|all>
+python3 openspec/tools/tc.py reconcile <change>
 python3 openspec/tools/tc.py gate <change>
+python3 openspec/tools/tc.py report <change> [--check]
 ```
 
 ## Conventions (quick reference)

@@ -1,17 +1,22 @@
 ---
 inclusion: always
 name: feedback-capture-full-output-to-file
-description: "For long/expensive commands, redirect full output + exit code to a file in ONE run, then inspect the file — never page-then-rerun."
+description: "Run a slow or expensive command once with its full output kept. Never pipe the first run through tail/head/grep and then re-run it."
 ---
 
-For any slow or expensive command whose output you might need to inspect more than one slice of — `mise run check`, full `pytest`, builds, `deploy.sh`, CDK synth — redirect the FULL output and capture the exit code in a single invocation, then read the file as many times as needed:
+Run a slow or expensive command once, and keep its full output. This applies to `mise run check`, a full `pytest` run, builds, `deploy.sh`, and CDK synth. Do not pipe the first run through `tail`, `head`, or `grep`:
 
 ```
-mise run check > /tmp/check.log 2>&1; echo "EXIT: $?"
+mise run check
 ```
 
-Then use Read / `grep` against `/tmp/check.log` for whatever slices you need (summary lines, failures, a specific subtask). Re-inspecting the file is free; re-running the command is not.
+The harness keeps the full output and reports the exit code. Short output comes back inline. Output over the harness limit is saved to the session's `tool-outputs/` directory, and the result names the saved file. Read that file, or `grep` it, for each part you need: summary lines, failures, a single subtask. Reading the saved output again costs nothing. Running the command again costs a full run.
 
-**Why:** Piping an expensive command's first run through `tail`/`head`/`grep` discards the parts you'll discover you need (e.g. `mise run check | tail -40` shows the test tail but cuts the ruff/spec-validate/cdk subtask results and the exit code), forcing a second and third full re-run. On `correlate-pipeline-traces` this happened repeatedly — `mise run check` ran 3× (~20s each) to assemble what one redirect would have given. Same anti-pattern on scoped pytest runs.
+**Why:** A pipe keeps only the slice it passes on, and the harness sees nothing else. For example, `mise run check | tail -40` shows the end of the test output but drops the ruff, spec-validate, and cdk subtask results. It also hides the command's exit code, because the exit code reported is `tail`'s. On `correlate-pipeline-traces`, this made `mise run check` run three times (about 20 s each) to collect what one plain run would have kept. The same thing happened with scoped pytest runs.
 
-**How to apply:** Default to `cmd > /tmp/<name>.log 2>&1; echo "EXIT: $?"` for anything that takes more than a few seconds and whose output you may need to examine in parts. Capture the exit code in that same line (don't re-run just to learn pass/fail). Only pipe-and-discard (`| tail`) when you are certain a single tail slice is all you will ever need from that run. Relates to [[feedback_openspec_json_piping]] (which governs the narrower case of which `openspec --json` outputs to filter vs. show raw).
+**How to apply:**
+- Run the command without a pipe, then read the parts you need from the inline result or the saved file.
+- Pipe-and-discard (`| tail`) only when you are certain that one slice is all you will ever need from that run.
+- Redirect to a file only when the harness truncates output without saving it. Write the log inside the workspace, for example `openspec/workflow-runs/<change>/<run>/check.log`, and capture the exit code on the same line: `cmd > <log> 2>&1; echo "EXIT: $?"`. Paths outside the workspace can raise a read-approval prompt that blocks unattended workflow steps.
+
+Related: [[feedback_openspec_json_piping]] covers the narrower question of which `openspec --json` outputs to filter and which to show raw.

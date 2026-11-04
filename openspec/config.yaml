@@ -206,25 +206,3 @@ rules:
     - >- 
       Scenario binds to its requirement — a scenario's `PREFIX-NNN` matches the
       `PREFIX-NNN` of its enclosing (most-recent-preceding) requirement heading.      
-  threatmodel:
-    - >-
-      Data-flow diagram: the threat model MUST include a Data Flow Diagram (DFD)
-      with EXPLICIT trust boundaries — a ```mermaid flowchart` whose `subgraph`
-      regions are the trust zones (untrusted producer-asserted input, the
-      trusted processing pipeline, per-account / cross-account boundaries), with
-      the untrusted region(s) styled distinctly (see the archived
-      derived-ref-id-discriminator `## Threats` section for the house style:
-      `style untrusted fill:#fdd,stroke:#c00`). The DFD is the spatial companion
-      to the STRIDE table — every trust-boundary crossing it shows SHOULD map to
-      at least one identified threat, and a crossing with no threat is itself a
-      finding. The `threat-model` subagent authors this DFD once and places it in
-      BOTH surfaces it owns: the mermaid source in the `.tc.json`
-      `dataflow.description` (so the artifact is self-contained for Threat
-      Composer round-trip) AND the same rendered block in the `## Threats`
-      section it appends to design.md (so it renders on GitHub for human review).
-      Keep the two copies identical; the rendered design.md block is the one
-      humans read.
-    - >-
-      Always create GitHub compatible (github-slugger) anchor links or hrefs when 
-      referencing sections in the proposal or other docs within the project. Make
-      sure links are concealed by other formatting. Prefer references over duplication.  

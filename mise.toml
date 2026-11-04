@@ -118,12 +118,16 @@ description = "Gitleaks secret detection (full git history) — offline, embedde
 run = "gitleaks git --no-banner --redact"
 
 [tasks.tm-gate]
-description = "Fail-closed threat-model archive gate for a change (usage: mise run tm-gate <change>)"
+description = "Fail-closed threat-model gate for a change (usage: mise run tm-gate <change>)"
 run = "uv run python openspec/tools/tc.py gate"
 
 [tasks.tm-reconcile]
-description = "Reconcile a change's threat model (usage: mise run tm-reconcile <change> -- --shipped all)"
+description = "Print the threat-model status changes that a change's checked tasks justify (usage: mise run tm-reconcile <change>)"
 run = "uv run python openspec/tools/tc.py reconcile"
+
+[tasks.tm-report]
+description = "Write a change's sanitized threat-model report (usage: mise run tm-report <change> [-- --check])"
+run = "uv run python openspec/tools/tc.py report"
 
 [tasks.tm-render]
 description = "Render a change's threat-model Mermaid DFD/architecture diagrams to embedded PNGs (usage: mise run tm-render <change>)"
