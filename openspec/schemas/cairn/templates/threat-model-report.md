@@ -6,7 +6,7 @@
 |---|---|
 | Model | `<change-name>.tc.json` |
 | Model SHA-256 | `<sha-256 of the model file>` |
-| Gate | PASSED or FAILED |
+| Gate | PASSED or FAILED, followed by ` (propose)` at the propose stage |
 | Threats | <count> |
 | Mitigations | <count> |
 | Assumptions | <count> |

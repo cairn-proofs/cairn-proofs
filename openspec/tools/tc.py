@@ -10,8 +10,12 @@ model at `threat-models/<change>.tc.json`. It never writes the model: the
   tagged with is checked. A threat is resolved when every mitigation linked to
   it is resolved.
 - **gate** — the fail-closed check: a non-zero exit if a threat has a missing or
-  unrecognized `Priority`, a High threat has no mitigation, or an open threat
-  still depends on an unresolved mitigation.
+  unrecognized `Priority`, a High threat has no mitigation, a `deferred:` tag is
+  malformed, or (at the apply stage) an open threat still depends on an
+  unresolved mitigation. `--stage propose` skips that last check, because at
+  propose time no mitigation is built yet. A mitigation tagged
+  `deferred:cp-threat-models-private#<n>` is deferred to the private follow-up
+  issue `<n>`; it does not hold back this change.
 - **report** — write `openspec/changes/<change>/threat-model-report.md`, a
   sanitized summary that is safe to commit to the public repo. It holds no
   threat, mitigation, asset or system text. `--check` fails if the committed
@@ -22,8 +26,8 @@ filesystem; `main()` is the thin CLI wrapper.
 
 Usage:
     python3 openspec/tools/tc.py reconcile <change>
-    python3 openspec/tools/tc.py gate <change>
-    python3 openspec/tools/tc.py report <change> [--check]
+    python3 openspec/tools/tc.py gate <change> [--stage propose|apply]
+    python3 openspec/tools/tc.py report <change> [--stage propose|apply] [--check]
 """
 
 from __future__ import annotations
@@ -54,6 +58,11 @@ DISMISSED_THREAT_STATE = "threatResolvedNotUseful"
 VALID_PRIORITIES = frozenset({"High", "Medium", "Low"})
 
 TASK_TAG_PREFIX = "task:"
+DEFERRED_TAG_PREFIX = "deferred:"
+# A deferred mitigation names its follow-up issue in the private threat-model
+# repository, so the public repository never carries the threat's description.
+_DEFERRED_TAG = re.compile(r"deferred:cp-threat-models-private#[1-9]\d*")
+STAGES = ("propose", "apply")
 _TASK_LINE = re.compile(r"^\s*- \[([ xX])\] (\d+(?:\.\d+)+)\b")
 
 
@@ -79,6 +88,14 @@ def _task_tags(mitigation: dict[str, Any]) -> list[str]:
         tag[len(TASK_TAG_PREFIX) :]
         for tag in mitigation.get("tags", []) or []
         if isinstance(tag, str) and tag.startswith(TASK_TAG_PREFIX)
+    ]
+
+
+def _deferred_tags(mitigation: dict[str, Any]) -> list[str]:
+    return [
+        tag
+        for tag in mitigation.get("tags", []) or []
+        if isinstance(tag, str) and tag.startswith(DEFERRED_TAG_PREFIX)
     ]
 
 
@@ -138,18 +155,41 @@ def reconcile(model: dict[str, Any], tasks: dict[str, bool]) -> dict[str, list[s
     return {"mitigations": advanced, "threats": threats, "errors": errors}
 
 
-def gate(model: dict[str, Any]) -> list[str]:
+def gate(model: dict[str, Any], stage: str = "apply") -> list[str]:
     """Return a list of fail-closed violations; empty means the gate passes.
 
+    Every mitigation with a `deferred:` tag must carry only well-formed
+    `deferred:cp-threat-models-private#<n>` tags and no `task:` tag.
+
     Dismissed (`threatResolvedNotUseful`) threats are skipped. For every other
-    threat, three conditions fail the gate:
+    threat, these conditions fail the gate:
       1. Its `Priority` is missing or not High/Medium/Low.
       2. It is High priority and has no linked mitigation.
-      3. It is not `threatResolved` and a linked mitigation is not resolved.
+      3. Apply stage only: it is not `threatResolved` and a linked mitigation
+         is neither resolved nor deferred.
     """
+    if stage not in STAGES:
+        raise ValueError(f"stage must be one of {STAGES}, not {stage!r}")
     violations: list[str] = []
     by_id = {m.get("id"): m for m in model.get("mitigations", []) or []}
     links = _threat_to_mitigations(model)
+
+    deferred: set[str] = set()
+    for mitigation in model.get("mitigations", []) or []:
+        mid = mitigation.get("id")
+        tags = _deferred_tags(mitigation)
+        if not tags:
+            continue
+        malformed = [t for t in tags if not _DEFERRED_TAG.fullmatch(t)]
+        if malformed:
+            violations.append(
+                f"mitigation {mid}: malformed deferred tag(s) {', '.join(malformed)} "
+                f"(expected deferred:cp-threat-models-private#<n>)"
+            )
+        elif _task_tags(mitigation):
+            violations.append(f"mitigation {mid}: has both task: and deferred: tags")
+        else:
+            deferred.add(mid)
 
     for threat in model.get("threats", []) or []:
         if threat.get("status") == DISMISSED_THREAT_STATE:
@@ -163,11 +203,11 @@ def gate(model: dict[str, Any]) -> list[str]:
             )
         elif priority == "High" and not linked:
             violations.append(f"threat {tid}: High priority threat has no mitigation")
-        if threat.get("status") == "threatResolved":
+        if stage == "propose" or threat.get("status") == "threatResolved":
             continue
         for mid in linked:
             status = (by_id.get(mid) or {}).get("status")
-            if status not in RESOLVED_MITIGATION_STATES:
+            if status not in RESOLVED_MITIGATION_STATES and mid not in deferred:
                 violations.append(
                     f"threat {tid}: depends on unresolved mitigation {mid} (status={status})"
                 )
@@ -193,7 +233,7 @@ _REPORT_TEMPLATE = """\
 _PLACEHOLDER_PATTERNS = {
     "model": r"[a-z0-9][a-z0-9-]*\.tc\.json",
     "sha256": r"[0-9a-f]{64}",
-    "gate": r"(?:PASSED|FAILED)",
+    "gate": r"(?:PASSED|FAILED)(?: \(propose\))?",
     "threats": r"\d+",
     "mitigations": r"\d+",
     "assumptions": r"\d+",
@@ -212,12 +252,15 @@ def _line_pattern(line: str) -> str:
 _REPORT_LINES = [_line_pattern(line) for line in _REPORT_TEMPLATE.splitlines()]
 
 
-def render_report(model_name: str, model_bytes: bytes, model: dict[str, Any]) -> str:
+def render_report(
+    model_name: str, model_bytes: bytes, model: dict[str, Any], stage: str = "apply"
+) -> str:
     """Render the sanitized report: counts, gate result and model hash only."""
+    result = "FAILED" if gate(model, stage) else "PASSED"
     return _REPORT_TEMPLATE.format(
         model=model_name,
         sha256=hashlib.sha256(model_bytes).hexdigest(),
-        gate="FAILED" if gate(model) else "PASSED",
+        gate=result if stage == "apply" else f"{result} ({stage})",
         threats=len(model.get("threats", []) or []),
         mitigations=len(model.get("mitigations", []) or []),
         assumptions=len(model.get("assumptions", []) or []),
@@ -251,6 +294,13 @@ def main(argv: list[str] | None = None) -> int:
     subparsers = {name: sub.add_parser(name, help=text) for name, text in commands.items()}
     for p in subparsers.values():
         p.add_argument("change", help="change name; the model is threat-models/<change>.tc.json")
+    for name in ("gate", "report"):
+        subparsers[name].add_argument(
+            "--stage",
+            choices=STAGES,
+            default="apply",
+            help="propose: skip the check for unbuilt mitigations (default: apply)",
+        )
     subparsers["report"].add_argument(
         "--check", action="store_true", help="fail if the committed report is stale"
     )
@@ -286,18 +336,18 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "gate":
-        violations = gate(model)
+        violations = gate(model, args.stage)
         if violations:
             print(f"GATE FAILED ({len(violations)} violation(s)):", file=sys.stderr)
             for v in violations:
                 print(f"  - {v}", file=sys.stderr)
             return 1
-        print("GATE PASSED")
+        print(f"GATE PASSED ({args.stage})")
         return 0
 
     # report
     report_path = CHANGES_DIR / args.change / REPORT_NAME
-    expected = render_report(path.name, model_bytes, model)
+    expected = render_report(path.name, model_bytes, model, args.stage)
     if args.check:
         if not report_path.is_file() or report_path.read_text(encoding="utf-8") != expected:
             print(f"REPORT STALE: regenerate {report_path}", file=sys.stderr)

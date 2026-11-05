@@ -181,6 +181,99 @@ def test_gate_skips_dismissed_threat():
     assert tc.gate(model) == []
 
 
+_DEFERRED = "deferred:cp-threat-models-private#12"
+
+
+def _deferred(mid: str, *tags: str) -> dict[str, Any]:
+    return {"id": mid, "status": "mitigationIdentified", "tags": ["Preventative", *tags]}
+
+
+def test_gate_treats_deferred_mitigation_as_not_blocking():
+    model = _model([_threat("t1", "High")], [_deferred("m1", _DEFERRED)], [("m1", "t1")])
+    assert tc.gate(model) == []
+
+
+def test_gate_still_blocks_on_unbuilt_mitigation_beside_a_deferred_one():
+    model = _model(
+        [_threat("t1")],
+        [_deferred("m1", _DEFERRED), _mitigation("m2", ("1.1",))],
+        [("m1", "t1"), ("m2", "t1")],
+    )
+    violations = tc.gate(model)
+    assert len(violations) == 1
+    assert "unresolved mitigation m2" in violations[0]
+
+
+@pytest.mark.parametrize(
+    "tag",
+    [
+        "deferred:#12",
+        "deferred:cairn-proofs/cairn-proofs#12",
+        "deferred:cp-threat-models-private#0",
+        "deferred:cp-threat-models-private#12x",
+        "deferred:",
+    ],
+)
+def test_gate_fails_closed_on_malformed_deferred_tag(tag):
+    model = _model([_threat("t1", status="threatResolved")], [_deferred("m1", tag)], [])
+    violations = tc.gate(model)
+    assert len(violations) == 1
+    assert "malformed deferred tag" in violations[0]
+
+
+def test_gate_malformed_deferred_tag_does_not_count_as_deferred():
+    model = _model([_threat("t1")], [_deferred("m1", "deferred:#12")], [("m1", "t1")])
+    violations = tc.gate(model)
+    assert any("malformed" in v for v in violations)
+    assert any("unresolved mitigation m1" in v for v in violations)
+
+
+def test_gate_rejects_mitigation_both_tasked_and_deferred():
+    model = _model(
+        [_threat("t1", status="threatResolved")],
+        [_deferred("m1", _DEFERRED, "task:1.1")],
+        [],
+    )
+    violations = tc.gate(model)
+    assert len(violations) == 1
+    assert "both task: and deferred:" in violations[0]
+
+
+def test_reconcile_never_resolves_deferred_mitigation():
+    model = _model([_threat("t1")], [_deferred("m1", _DEFERRED)], [("m1", "t1")])
+    assert tc.reconcile(model, {"1.1": True}) == {"mitigations": [], "threats": [], "errors": []}
+
+
+def test_gate_propose_stage_ignores_unbuilt_mitigations():
+    model = _model([_threat("t1", "High")], [_mitigation("m1", ("1.1",))], [("m1", "t1")])
+    assert tc.gate(model, "propose") == []
+    assert len(tc.gate(model, "apply")) == 1
+
+
+def test_gate_propose_stage_still_flags_unmitigated_high_and_bad_priority():
+    model = _model([_threat("t1", "High"), _threat("t2", "high")], [], [])
+    violations = tc.gate(model, "propose")
+    assert len(violations) == 2
+
+
+def test_gate_propose_stage_still_flags_malformed_deferred_tag():
+    model = _model([], [_deferred("m1", "deferred:#1")], [])
+    assert len(tc.gate(model, "propose")) == 1
+
+
+def test_gate_rejects_unknown_stage():
+    with pytest.raises(ValueError):
+        tc.gate(_model([], [], []), "archive")
+
+
+def test_render_report_marks_propose_stage_and_passes_shape():
+    model = _model([_threat("t1")], [_mitigation("m1", ("1.1",))], [("m1", "t1")])
+    report = tc.render_report("my-change.tc.json", b"{}", model, "propose")
+    assert "| Gate | PASSED (propose) |" in report
+    assert tc.check_report_shape(report) == []
+    assert "| Gate | FAILED |" in tc.render_report("my-change.tc.json", b"{}", model)
+
+
 def test_reconcile_then_gate_clean_end_to_end():
     model = _model(
         [_threat("t1", "High"), _threat("t2", "Low")],
@@ -312,6 +405,19 @@ def test_cli_report_writes_then_check_detects_staleness(tmp_path, monkeypatch):
     assert tc.main(["report", "c", "--check"]) == 0
     model_path.write_text(json.dumps(_model([], [], [])), encoding="utf-8")
     assert tc.main(["report", "c", "--check"]) == 1  # model changed, report stale
+
+
+def test_cli_gate_and_report_honor_stage(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    model = _model([_threat("t1")], [_mitigation("m1", ("1.1",))], [("m1", "t1")])
+    _write_change(tmp_path, "c", model, None)
+    assert tc.main(["gate", "c", "--stage", "propose"]) == 0
+    assert tc.main(["gate", "c"]) == 1
+    assert tc.main(["report", "c", "--stage", "propose"]) == 0
+    report = (tmp_path / "openspec/changes/c" / tc.REPORT_NAME).read_text(encoding="utf-8")
+    assert "| Gate | PASSED (propose) |" in report
+    assert tc.main(["report", "c", "--stage", "propose", "--check"]) == 0
+    assert tc.main(["report", "c", "--check"]) == 1  # apply-stage rendering differs
 
 
 def test_cli_report_exits_2_without_change_dir(tmp_path, monkeypatch):
