@@ -4,7 +4,8 @@ Covers:
 - `is_supported_version` — 1.x acceptance & all rejection branches
 - `parse_oscal_layer` — happy path (version read from content), the
   size cap, `parse_failure` for invalid UTF-8 / malformed JSON / non-OSCAL
-  JSON / an undeclared field (strict models), `unsupported_version`
+  JSON / an undeclared field (strict models) / a key spelled with a Python
+  field name instead of its OSCAL name, `unsupported_version`
   for a parseable non-1.x document,
   `missing_schema_version` for a parseable document with no embedded
   version, and `layer_digest` propagation onto the raised exception.
@@ -24,7 +25,7 @@ from cairn_oscal.dispatch import (
     parse_oscal_layer,
 )
 from cairn_oscal.errors import OscalExtractionError
-from oscal_bindings import OscalDoc
+from oscal_bindings import OscalDoc, OscalParseError
 
 from .conftest import TEST_UUID, minimal_catalog_json
 
@@ -219,6 +220,82 @@ def test_parse_oscal_layer_unknown_field_raises_parse_failure() -> None:
         parse_oscal_layer(json.dumps(doc).encode("utf-8"), layer_digest="sha256:extra")
     assert exc_info.value.error_kind == "parse_failure"
     assert exc_info.value.layer_digest == "sha256:extra"
+
+
+# ---------------------------------------------------------------------------
+# parse_oscal_layer — Python-field-name keys are rejected, not dropped (#68)
+# ---------------------------------------------------------------------------
+
+_RESOURCE_UUID = "11111111-1111-4111-8111-111111111111"
+
+
+def _catalog_with(extra: dict[str, object]) -> bytes:
+    """A minimal valid catalog with `extra` merged into the `catalog` object."""
+    doc = json.loads(minimal_catalog_json())
+    doc["catalog"].update(extra)
+    return json.dumps(doc).encode("utf-8")
+
+
+def test_parse_oscal_layer_canonical_back_matter_is_kept() -> None:
+    """Control case: the canonical hyphenated `back-matter` key parses and
+    its content reaches the parsed document."""
+    blob = _catalog_with({"back-matter": {"resources": [{"uuid": _RESOURCE_UUID}]}})
+    doc, _ = parse_oscal_layer(blob)
+    back_matter = doc.body.back_matter
+    assert back_matter is not None
+    assert [str(r.uuid) for r in back_matter.resources] == [_RESOURCE_UUID]
+
+
+@pytest.mark.parametrize(
+    ("extra", "offending_key"),
+    [
+        pytest.param(
+            {"back_matter": {"resources": [{"uuid": _RESOURCE_UUID}]}},
+            "back_matter",
+            id="top-level-optional-field",
+        ),
+        pytest.param(
+            {
+                "back-matter": {
+                    "resources": [
+                        {
+                            "uuid": _RESOURCE_UUID,
+                            "rlinks": [{"href": "https://example.com/r.json", "media_type": "x/y"}],
+                        }
+                    ]
+                }
+            },
+            "media_type",
+            id="nested-optional-field",
+        ),
+        pytest.param(
+            {
+                "back-matter": {"resources": [{"uuid": _RESOURCE_UUID}]},
+                "back_matter": {"resources": []},
+            },
+            "back_matter",
+            id="both-spellings-present",
+        ),
+    ],
+)
+def test_parse_oscal_layer_python_field_name_key_raises_parse_failure(
+    extra: dict[str, object], offending_key: str
+) -> None:
+    """A key spelled with a model's Python field name instead of its OSCAL
+    name is a permanent `parse_failure` ([OSCAL-005]). It is never silently
+    dropped from a document that then reports valid."""
+    with pytest.raises(OscalExtractionError) as exc_info:
+        parse_oscal_layer(_catalog_with(extra), layer_digest="sha256:pyname")
+    assert exc_info.value.error_kind == "parse_failure"
+    assert exc_info.value.layer_digest == "sha256:pyname"
+    cause = exc_info.value.__cause__
+    assert isinstance(cause, OscalParseError)
+    assert any(
+        e["type"] == "extra_forbidden"
+        and e["loc"][0] == "CatalogDocument"
+        and e["loc"][-1] == offending_key
+        for e in cause.errors
+    )
 
 
 # ---------------------------------------------------------------------------

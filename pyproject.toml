@@ -13,6 +13,14 @@ package = false
 # Exempt one package with an `exclude-newer-package` entry in this table.
 exclude-newer = "7 days"
 
+[tool.uv.exclude-newer-package]
+# oscal-bindings 0.4.0 and pydantic 2.14.2 close the OSCAL JSON silent-key-drop
+# (#68, GHSA-qpmf-fgh3-ff25). Remove these entries once both releases are older
+# than the cooldown (after 2026-11-11).
+oscal-bindings = "2026-11-05T00:00:00Z"
+pydantic = "2026-10-30T00:00:00Z"
+pydantic-core = "2026-10-30T00:00:00Z"
+
 [tool.uv.workspace]
 members = ["cli", "lambdas/*", "libs/*"]
 

@@ -4,11 +4,14 @@ version = "0.1.0"
 description = "OSCAL extraction adapter for the Cairn Provenance_System: schema-version cross-check, metadata extraction, OSCAL artifact reference generation. Thin layer over oscal-bindings."
 requires-python = ">=3.12,<3.13"
 dependencies = [
-  "pydantic>=2.13.4,<3",
+  # 2.14.2 rejects JSON keys spelled with a Python field name (e.g.
+  # `back_matter`) as extra instead of silently dropping them
+  # (pydantic/pydantic#13275, GHSA-qpmf-fgh3-ff25).
+  "pydantic>=2.14.2,<3",
   # OSCAL data bindings (pydantic v2 models + OscalDoc facade + back-matter
   # builders), published on PyPI from github.com/cairn-proofs/oscal-bindings-python.
   # Exact pin: the generated models define what the validate path accepts.
-  "oscal-bindings==0.3.1",
+  "oscal-bindings==0.4.0",
   "cairn-oci",
 ]
 
