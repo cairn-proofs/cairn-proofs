@@ -25,22 +25,25 @@ Deploying:
 
 **[mise](https://mise.jdx.dev/) manages the full toolchain via `mise.toml`.** A single `mise install` pins and installs Node, Python, uv, the AWS CLI, pre-commit, the openspec CLI, and the Mermaid CLI (`mmdc`). The only per-machine prerequisite is mise itself.
 
-> **Threat-model diagram rendering:** The `threat-model` agent and `mise run tm-render` use `mmdc` (`@mermaid-js/mermaid-cli`) to render threat-model DFDs to PNG for the Threat Composer UI. `mise install` provisions the `mmdc` binary. Its headless browser is a **separate, one-time `mise run mmdc-setup`** (~160MB `chrome-headless-shell`). `mise install` deliberately does not auto-download the browser, so CI and `deploy.sh` never pay for it. This step is **dev-time only**, off the `deploy.sh` path and out of `mise run check`. It degrades gracefully if the browser is absent — diagram slots stay empty and threat models still validate. See [`docs/adr/0013-accept-chromium-dependency-for-threat-model-diagram-rendering.md`](docs/adr/0013-accept-chromium-dependency-for-threat-model-diagram-rendering.md).
+> **Threat-model diagram rendering:** `mise run tm-render` uses `mmdc` (`@mermaid-js/mermaid-cli`) to render threat-model DFDs to PNG for the Threat Composer UI. `mise install` provisions the `mmdc` binary. Its headless browser is a **separate, one-time `mise run mmdc-setup`** (~160MB `chrome-headless-shell`). `mise install` deliberately does not auto-download the browser, so CI and `deploy.sh` never pay for it. This step is **dev-time only**, off the `deploy.sh` path and out of `mise run check`. It degrades gracefully if the browser is absent — diagram slots stay empty and threat models still validate. No step of the OpenSpec flow calls it: the `threat-composer` MCP server renders each threat model's DFD itself. See [`docs/adr/0013-accept-chromium-dependency-for-threat-model-diagram-rendering.md`](docs/adr/0013-accept-chromium-dependency-for-threat-model-diagram-rendering.md).
 
-### System-level threat model
+### Threat models
 
-The paragraph above covers the **per-change** `threat-model.tc.json` that the `threat-model` agent writes into each
-OpenSpec change — that one is committed with the change, in this repo. This repo's **overall, product-level**
-threat model is a separate artifact, kept in a private store rather than here (the same store every `cairn-proofs`
-public repo uses, one branch per repo):
+Threat models are private. They live in a private store, not in this repo. The store holds one branch per
+`cairn-proofs` public repo, named after the repo, with the model files at the branch root. Set up a working copy once:
 
 ```bash
 THREAT_MODEL_STORE_URL=<url> scripts/setup-threat-model.sh
 ```
 
-See internal onboarding for `THREAT_MODEL_STORE_URL`. This clones a private working copy into `./threat-models`
-(gitignored) — its root *is* the model, not a nested path. Open the `.tc.json` there with the Threat Composer VS
-Code extension or web app.
+See internal onboarding for `THREAT_MODEL_STORE_URL`. This clones the store into `./threat-models` (gitignored), which
+is a separate git repository. Commit model changes there with `git -C threat-models ...`, never with this repo's git.
+
+During `/openspec-propose`, the `threat-model` skill builds a model for each change at
+`threat-models/<change-name>.tc.json`. The `threat-composer` MCP server is the only writer. Its project config
+(`.mcp.json` for Claude Code, `.kiro/settings/mcp.json` for Kiro) sets `THREAT_COMPOSER_AI_MODEL_DIR=threat-models`.
+The change itself carries only `threat-model-report.md`, a sanitized summary that `openspec/tools/tc.py report`
+writes. Open a `.tc.json` with the Threat Composer VS Code extension or web app.
 
 ### Supported platforms
 
