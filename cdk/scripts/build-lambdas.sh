@@ -192,8 +192,11 @@ build_one() {
     echo "ERROR: installing the locked third-party packages of ${package} failed (hash mismatch or missing wheel)." >&2
     return 1
   fi
+  # --no-cache: uv reuses a cached wheel of a local package while its
+  # pyproject.toml is unchanged, even when its source files changed. The members
+  # are this repository's own code, so they must build from the current source.
   if ! uv_clean pip install "${UV_INSTALL_COMMON[@]}" --target "${target}" \
-      --build-constraints "${BUILD_CONSTRAINTS}" -r "${members}"; then
+      --no-cache --build-constraints "${BUILD_CONSTRAINTS}" -r "${members}"; then
     echo "ERROR: building the workspace members of ${package} failed." >&2
     return 1
   fi
