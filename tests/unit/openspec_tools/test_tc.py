@@ -181,7 +181,7 @@ def test_gate_skips_dismissed_threat():
     assert tc.gate(model) == []
 
 
-_DEFERRED = "deferred:cp-threat-models-private#12"
+_DEFERRED = "deferred:tm-private#12"
 
 
 def _deferred(mid: str, *tags: str) -> dict[str, Any]:
@@ -209,8 +209,8 @@ def test_gate_still_blocks_on_unbuilt_mitigation_beside_a_deferred_one():
     [
         "deferred:#12",
         "deferred:cairn-proofs/cairn-proofs#12",
-        "deferred:cp-threat-models-private#0",
-        "deferred:cp-threat-models-private#12x",
+        "deferred:tm-private#0",
+        "deferred:tm-private#12x",
         "deferred:",
     ],
 )
