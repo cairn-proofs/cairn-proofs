@@ -150,15 +150,12 @@ def _ssp_doc(control_ids: list[str]) -> OscalDoc:
 )
 @settings(suppress_health_check=[HealthCheck.too_slow], max_examples=15)
 def test_property_15_ar_control_ids_deduped_and_sorted(control_ids: list[str]) -> None:
-    """**WHEN** a valid OSCAL Assessment Results document is processed and the
-    Config_Blob `oscalSchemaVersion` matches the document's embedded
-    `oscal-version` **THEN** the metadata extraction function uses the declared
-    `oscalSchemaVersion` to select the correct SDK extraction path, extracts
-    system name, control references, assessment start date, assessment end
-    date, Assessment Results UUID, SSP UUID, and the document-embedded
-    `oscal-version`, all extracted values match the values in the source
-    document, and the Metadata_Index is populated with those values plus
-    `oscalSchemaVersion`.
+    """**WHEN** a valid OSCAL Assessment Results document is processed and its
+    embedded `metadata.oscal-version` is a supported 1.x value **THEN** the
+    metadata extraction function extracts system name, control references,
+    assessment start date, assessment end date, Assessment Results UUID, SSP
+    UUID, and the document-embedded `oscal-version`, and all extracted values
+    match the values in the source document.
 
     Source: oscal-interop/spec.md:59-62 ([OSCAL-003.01] — AR control extraction:
     duplicates dedup, output is sorted).
@@ -179,12 +176,11 @@ def test_property_15_ar_control_ids_deduped_and_sorted(control_ids: list[str]) -
 @given(control_ids=st.lists(control_id(), min_size=0, max_size=8, unique=True))
 @settings(suppress_health_check=[HealthCheck.too_slow], max_examples=15)
 def test_property_15_ssp_control_extraction_deduped_and_sorted(control_ids: list[str]) -> None:
-    """**WHEN** a valid OSCAL Assessment Results document is processed and the
-    Config_Blob `oscalSchemaVersion` matches the document's embedded
-    `oscal-version` **THEN** the metadata extraction function uses the declared
-    `oscalSchemaVersion` to select the correct SDK extraction path, extracts
-    system name, control references, assessment start date, assessment end
-    date, Assessment Results UUID, SSP UUID ...
+    """**WHEN** a valid OSCAL Assessment Results document is processed and its
+    embedded `metadata.oscal-version` is a supported 1.x value **THEN** the
+    metadata extraction function extracts system name, control references,
+    assessment start date, assessment end date, Assessment Results UUID, SSP
+    UUID ...
 
     Source: oscal-interop/spec.md:59-62 ([OSCAL-003.01] — SSP control extraction
     via implemented-requirements).
@@ -211,9 +207,9 @@ def test_property_15_ssp_control_extraction_deduped_and_sorted(control_ids: list
 )
 @settings(suppress_health_check=[HealthCheck.too_slow], max_examples=10)
 def test_property_15_project_name_preserves_metadata_title(project_name: str) -> None:
-    """**WHEN** a valid OSCAL Assessment Results document is processed and the
-    Config_Blob `oscalSchemaVersion` matches the document's embedded
-    `oscal-version` **THEN** ... extracts system name ... all extracted values
+    """**WHEN** a valid OSCAL Assessment Results document is processed and its
+    embedded `metadata.oscal-version` is a supported 1.x value **THEN** ...
+    extracts system name ... all extracted values
     match the values in the source document ...
 
     Source: oscal-interop/spec.md:59-62 ([OSCAL-003.01] — project_name is taken

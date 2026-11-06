@@ -12,7 +12,9 @@ The producer-facing surface of the Provenance_System. It defines:
 Producers — CI/CD pipelines, scanners, AI agents, human operators — all use this surface the same way.
 
 *Domain terms (`Capitalized_Underscore`) used below are defined in [GLOSSARY.md](../../GLOSSARY.md), which names the governing requirement for each.*
+
 ## Requirements
+
 ### Requirement: [INGEST-001] Artifact Taxonomy Is Strictly Governed
 
 THE Provenance_System SHALL model every object it holds as an **Artifact** — a digest-addressed OCI object identified by its Manifest_Digest — and SHALL classify each Artifact by an **Artifact_Type** drawn from the closed vocabulary `evidence | reference | signature | worm-receipt | oci-index`, discriminated physically by the manifest's `config.mediaType`. The genus `Artifact` is the single term for everything in the store; "evidence" is NOT an intrinsic Artifact_Type but the OSCAL `relevant-evidence` reference role conferred by an observation citing the Artifact.
@@ -390,8 +392,6 @@ THE Provenance_System SHALL provide content-addressable deduplication at two dis
 THE Provenance_System SHALL use a Config_Blob, with media type `application/vnd.cairnproofs.artifact.config.v1+json`, that carries only **content-descriptive** bundle-level metadata.
 
 The Config_Blob SHALL include project ID as a content-descriptive identifier; it MAY carry content-descriptive references such as OSCAL document references. The Config_Blob SHALL NOT carry the producer's compliance claim — `controls`, `catalogOrProfileUuid`, `assessmentPeriod`, producer/assessor identity, assessment-id, and supersedes are claim fields of the Producer_Attestation_Referrer (see *Producer Claim Carried as Signed Attestation Referrer*), never Config_Blob fields. The Config_Blob SHALL NOT carry a `controlFamily` field — control-family is a derived projection of the `controls` list, never bundle data.
-
-The Config_Blob SHALL NOT carry the authoritative OSCAL schema version: for an OSCAL-bearing bundle the version is derived from each layer's own document content, and any `oscalSchemaVersion` Config_Blob field is not read and is not an acceptance criterion (the content-derived schema-version model, the tolerate-and-ignore handling of a declared field, and rejection on a missing/unsupported embedded version are owned by the oscal-interop *OSCAL SDK-based extraction with content-derived schema version* Requirement).
 
 #### Scenario: [INGEST-016.01] Content-descriptive Config_Blob with required media type accepted
 

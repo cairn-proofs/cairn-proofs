@@ -617,8 +617,25 @@ def test_tag_sequence_flag_no_longer_accepted() -> None:
 
 
 # --------------------------------------------------------------------------
-# Bundle assembly: content layers, media types, OSCAL schema-version omission.
+# Bundle assembly: content layers, media types, Config_Blob bytes.
 # --------------------------------------------------------------------------
+
+
+def test_config_blob_bytes_are_project_id_only(aws_stack, tmp_path: Path) -> None:
+    """The pushed Config_Blob bytes are exactly ``{"projectId":...}``.
+
+    The Config_Blob bytes are part of the content Manifest_Digest, so any change
+    to the serialized shape changes every bundle's identity. Pin the exact bytes
+    for an OSCAL-bearing push, the case where a schema-version field would show up.
+    """
+    ssm, ecr = _ecr_clients(aws_stack)
+    oscal_file = tmp_path / "ar.json"
+    oscal_file.write_text(json.dumps({"assessment-results": {"uuid": "x"}}))
+    fake_oras = _FakeOras()
+    args = _make_args([oscal_file])
+    rc = push_module._run(args, ssm_client=ssm, ecr_client=ecr, oras_module=fake_oras)
+    assert rc == 0
+    assert fake_oras.push_calls[0]["config_bytes"] == b'{"projectId":"alpha-bank"}'
 
 
 def test_happy_path_content_manifest_and_claim(aws_stack, evidence_file: Path) -> None:
@@ -645,37 +662,6 @@ def test_happy_path_content_manifest_and_claim(aws_stack, evidence_file: Path) -
     claim = _predicate(fake_oras.attach_calls[0])
     assert claim["artifactKind"] == "assessment-results"
     assert claim["catalogOrProfileUuid"] == "11111111-1111-4111-8111-111111111111"
-
-
-def test_oscal_schema_version_flag_no_longer_accepted() -> None:
-    """The --oscal-schema-version flag is removed; the parser rejects it."""
-    parser = _push_parser()
-    with pytest.raises(SystemExit) as excinfo:
-        parser.parse_args(
-            [
-                "push",
-                "--project-id",
-                "alpha-bank",
-                "--assessment-period",
-                "2026-q1",
-                "report.pdf",
-                "--oscal-schema-version",
-                "1.1.2",
-            ]
-        )
-    assert excinfo.value.code == 2
-
-
-def test_oscal_bundle_does_not_emit_schema_version(aws_stack, tmp_path: Path) -> None:
-    ssm, ecr = _ecr_clients(aws_stack)
-    oscal_file = tmp_path / "ar.json"
-    oscal_file.write_text(json.dumps({"assessment-results": {"uuid": "x"}}))
-    fake_oras = _FakeOras()
-    args = _make_args([oscal_file])
-    rc = push_module._run(args, ssm_client=ssm, ecr_client=ecr, oras_module=fake_oras)
-    assert rc == 0
-    blob = json.loads(fake_oras.push_calls[0]["config_bytes"])
-    assert "oscalSchemaVersion" not in blob
 
 
 def test_missing_file_fails_fast_before_network(aws_stack, tmp_path: Path) -> None:

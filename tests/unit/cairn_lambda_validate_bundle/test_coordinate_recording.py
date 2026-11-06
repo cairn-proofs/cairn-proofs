@@ -194,13 +194,11 @@ def test_validated_non_oscal_bundle_records_no_name(
     guard: neither content type gets a content-derived canonical-tag name."""
     handler = reload_handler
     # A non-OSCAL content layer: arbitrary media type, no application/oscal.*
-    # prefix, carrying the pushed-filename annotation. The Config_Blob declares no
-    # OSCAL schema version (it is not an OSCAL bundle).
+    # prefix, carrying the pushed-filename annotation.
     bundle = build_bundle(
         layer_media_type="application/pdf",
         layer_bytes=b"%PDF-1.7 not-oscal",
         layer_title="Quarterly Pentest Report.pdf",
-        config_bytes=config_blob_body(oscal_schema_version=None),
     )
     _validate(handler, bundle, lambda_context)
 
@@ -235,7 +233,6 @@ def test_oscal_and_non_oscal_bundles_record_identical_coordinate_shape(
         layer_media_type="application/pdf",
         layer_bytes=b"%PDF-1.7 not-oscal",
         layer_title="Quarterly Pentest Report.pdf",
-        config_bytes=config_blob_body(oscal_schema_version=None),
     )
     _validate(handler, non_oscal_bundle, lambda_context)
     non_oscal_record = fake_index.get_record(
@@ -264,7 +261,7 @@ def test_multi_file_bundle_records_no_name(reload_handler, lambda_context, fake_
             {"media_type": "application/pdf", "blob": b"%PDF-1.7 first", "title": "first.pdf"},
             {"media_type": "application/pdf", "blob": b"%PDF-1.7 second", "title": "second.pdf"},
         ],
-        config_bytes=config_blob_body(oscal_schema_version=None),
+        config_bytes=config_blob_body(),
     )
     # The builder already seeded the bundle on the fake ECR, so seed_bundle=False.
     _validate(handler, bundle, lambda_context, seed_bundle=False)

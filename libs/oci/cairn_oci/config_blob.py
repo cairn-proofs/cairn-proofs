@@ -5,7 +5,7 @@ content-descriptive, IAM-grounded identifier, Req 318) and content-descriptive
 OSCAL references. The Config_Blob is part of the content Manifest_Digest, so it
 MUST NOT carry the producer's compliance claim — which lives in the
 separately-signed :class:`cairn_oci.producer_attestation.ProducerAttestationReferrer` (see
-artifact-ingestion "Config_Blob Media Type and OSCAL Schema Version" and
+artifact-ingestion "Config_Blob Media Type and Content-Descriptive Fields" and
 "Producer Claim Carried as Signed Attestation Referrer").
 
 artifact-kind is likewise NOT a Config_Blob field and is not a
@@ -17,11 +17,6 @@ solely as the Producer_Attestation_Referrer's
 of the digest (Req 318).
 
 The media type is v1.
-
-For bundles containing any `application/oscal.*` layer, the OSCAL schema version
-is content-derived from the document's own `metadata.oscal-version`; a declared
-`oscalSchemaVersion` field is not required and not read. If a
-producer supplies it, the value is tolerated and ignored.
 """
 
 from __future__ import annotations
@@ -136,9 +131,4 @@ class ConfigBlob(BaseModel):
     # deliberate (see "Bundle Identity Is Pure Content Addressing").
     project_id: str = Field(alias="projectId")
 
-    # Tolerated-and-ignored field. The OSCAL schema version is derived
-    # from each OSCAL layer's own `metadata.oscal-version`, never from
-    # this declaration. Present on the model so producers that emit it
-    # still validate; the value is not read.
-    oscal_schema_version: str | None = Field(default=None, alias="oscalSchemaVersion")
     oscal_references: OscalReferences | None = Field(default=None, alias="oscalReferences")

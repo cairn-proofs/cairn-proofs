@@ -124,14 +124,14 @@ The three persona bands below correspond to Consumption (**Stakeholders**), Prod
 
 **Goals.**
 - Generate OSCAL from engineering inputs (Priya's IaC) and merge external OSCAL (vendor component definitions, authored catalogs/profiles) into his firm's bundles. Then push them so the system extracts every control reference into the queryable Metadata_Index + Controls relationship table, with none dropped.
-- Catch schema drift early. Cairn cross-checks the producer-declared OSCAL version against the document's embedded version. It validates the bundle-type / Config_Blob / ECR-path triple.
+- Catch schema problems early. Cairn reads each OSCAL document's own `metadata.oscal-version` and rejects a missing or unsupported version at ingest. It checks the claim's org / tenant / project triple against the ECR repository path.
 - Trust that OSCAL extraction failure is a *hard* failure, not a degrade.
 
 **How they use Cairn.** `cairn pull` / `cairn query` retrieves the external and upstream OSCAL he integrates (vendor component definitions, Nadia's catalogs/profiles, Priya's artifacts). `cairn push` sends the OSCAL bundles he produces. `cairn query` confirms controls resolved as expected (`{catalogOrProfileUuid}#{controlId}` keys). He consumes the generated artifact references.
 
 **What Cairn solves for them.** OSCAL is a native, non-negotiable format with no silent-degrade path. Cairn enforces extraction fidelity rather than treating it as best-effort. So the models he builds and the content he merges stay faithful end to end.
 
-**Success looks like.** Every control in a pushed SSP/assessment is queryable. Cairn rejects version mismatches at ingest, not at audit. Key metric: extraction completeness, schema-cross-check catch rate.
+**Success looks like.** Every control in a pushed SSP/assessment is queryable. Cairn rejects unsupported OSCAL versions at ingest, not at audit. Key metric: extraction completeness, ingest-time rejection of unsupported OSCAL versions.
 
 **Frustrations Cairn must not reintroduce.** These are the frustrations to avoid:
 - OSCAL flattened to opaque blobs.

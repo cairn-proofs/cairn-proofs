@@ -148,9 +148,7 @@ def _default_push_args(files: list[Path]) -> argparse.Namespace:
     """The argparse Namespace for ``cairn push --project-id <id> <oscal-file>`` with
     all optional control linkage / period / artifact-kind left at their defaults.
 
-    This is the controls-less, no-``catalogOrProfileUuid`` shape. No
-    ``oscalSchemaVersion`` is declared: the schema version is content-derived, so
-    the CLI does not emit the field and the validator does not require it.
+    This is the controls-less, no-``catalogOrProfileUuid`` shape.
     """
     return argparse.Namespace(
         org_id="mvp-org",
@@ -204,8 +202,6 @@ def test_default_push_artifacts_roundtrip_through_validator_with_zero_errors(
     config_blob_json = json.loads(call["config_bytes"])
     assert "controls" not in config_blob_json
     assert "catalogOrProfileUuid" not in config_blob_json
-    # No declared schema version is emitted — the version is content-derived.
-    assert "oscalSchemaVersion" not in config_blob_json
     # artifact-kind is not in the content manifest — no `artifact-kind` manifest
     # annotation and no Config_Blob `bundleType`. Kind is carried ONLY by the
     # Producer_Attestation_Referrer `artifactKind` claim, so it never perturbs the content

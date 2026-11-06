@@ -906,8 +906,7 @@ def _process_layers_and_build_reference(
             # OSCAL enrichment is a per-entry sub-object on the unified list, NOT
             # a separate list. oscalSchemaVersion is derived from THIS layer's own
             # metadata.oscal-version (content-authoritative, per-layer);
-            # update_metadata indexes it from here, NOT from the declared
-            # Config_Blob field.
+            # update_metadata indexes it from here.
             entry["oscal"] = {
                 "oscalSchemaVersion": version,
                 "metadata": meta.model_dump(mode="json"),

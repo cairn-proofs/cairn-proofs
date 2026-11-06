@@ -140,8 +140,7 @@ def _baseline_config_blob(project_id: str) -> dict[str, Any]:
 
     Field names match what ``cairn push`` serializes via
     ``ConfigBlob.model_dump_json(by_alias=True, exclude_none=True)``: no
-    ``bundleType`` (kind is claim-only), no ``controlFamily`` (not a schema field), and no
-    ``oscalSchemaVersion`` (the CLI omits it).
+    ``bundleType`` (kind is claim-only) and no ``controlFamily`` (not a schema field).
     """
     return {
         "projectId": project_id,

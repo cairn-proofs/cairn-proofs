@@ -542,7 +542,7 @@ def test_legless_bundle_validates_and_does_not_mass_dlq(reload_handler, lambda_c
     handler = reload_handler
     # The legless shape is the default now, but assert it explicitly so the
     # regression cannot silently degrade if the fixtures change.
-    bundle = build_bundle(config_bytes=config_blob_body())
+    bundle = build_bundle()
     assert "bundleType" not in json.loads(bundle.config_bytes)
     # The kind annotation key is not a `cairn_oci.annotations` constant, so pin
     # the literal key: it must not be present on the content manifest.
@@ -732,7 +732,6 @@ def test_bundle_with_no_in_band_timestamp_skips_temporal_check(
         layer_media_type="text/plain",
         layer_bytes=b"plain evidence",
         layer_title="note.txt",
-        config_bytes=config_blob_body(oscal_schema_version=None),
     )
     # Push time deliberately far in the past relative to nothing — no timestamp exists.
     _attestation, event = submit(handler, bundle=bundle, pushed_at="2020-01-01T00:00:00Z")
@@ -809,11 +808,9 @@ def test_oscal_parse_failure_routes_to_validation_failed(reload_handler, lambda_
     assert failed[0]["layerDigest"] == bundle.layer_digest
 
 
-def test_oscal_bundle_without_declared_version_validates_from_content(
-    reload_handler, lambda_context
-) -> None:
+def test_oscal_bundle_version_is_derived_from_content(reload_handler, lambda_context) -> None:
     handler = reload_handler
-    bundle = build_bundle(config_bytes=config_blob_body(oscal_schema_version=None))
+    bundle = build_bundle()
     _attestation, event = submit(handler, bundle=bundle)
 
     payload = handler.lambda_handler(event, lambda_context)
@@ -1051,7 +1048,6 @@ def _non_oscal_bundle() -> BundleFixture:
         layer_media_type="text/plain",
         layer_bytes=b"plain-text evidence, not oscal",
         layer_title="evidence-note.txt",
-        config_bytes=config_blob_body(oscal_schema_version=None),
     )
 
 
@@ -1213,7 +1209,7 @@ def _multi_layer_bundle(
     from cairn_oci.annotations import CairnAnnotations
 
     if config_bytes is None:
-        config_bytes = config_blob_body(oscal_schema_version=None)
+        config_bytes = config_blob_body()
     config_digest = compute_sha256_digest(config_bytes)
 
     manifest_layers: list[dict[str, Any]] = []
@@ -1401,7 +1397,6 @@ def test_oversized_title_fails_closed(reload_handler, lambda_context) -> None:
         layer_media_type="text/plain",
         layer_bytes=b"plain evidence",
         layer_title=huge_title,
-        config_bytes=config_blob_body(oscal_schema_version=None),
     )
     _attestation, event = submit(handler, bundle=bundle)
 
@@ -1431,7 +1426,6 @@ def test_multibyte_title_over_byte_cap_under_char_cap_fails_closed(
         layer_media_type="text/plain",
         layer_bytes=b"plain evidence",
         layer_title=multibyte_title,
-        config_bytes=config_blob_body(oscal_schema_version=None),
     )
     _attestation, event = submit(handler, bundle=bundle)
 
@@ -1454,7 +1448,6 @@ def test_title_at_exact_byte_cap_is_accepted(reload_handler, lambda_context) -> 
         layer_media_type="text/plain",
         layer_bytes=b"plain evidence",
         layer_title=boundary_title,
-        config_bytes=config_blob_body(oscal_schema_version=None),
     )
     _attestation, event = submit(handler, bundle=bundle)
 

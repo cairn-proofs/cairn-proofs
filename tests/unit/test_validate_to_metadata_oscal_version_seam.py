@@ -50,8 +50,6 @@ from tests.unit.cairn_lambda_validate_bundle.conftest import (
     attestation_push_event,
     build_attestation,
     build_bundle,
-    catalog_blob_bytes,
-    config_blob_body,
 )
 
 
@@ -197,28 +195,3 @@ def test_content_version_survives_validate_to_metadata_seam(
 
     item = _index(metadata_handler, detail)
     assert item["layers"][0]["oscal"]["oscalSchemaVersion"] == OSCAL_VERSION
-
-
-def test_stale_declared_version_does_not_reach_the_index_across_seam(
-    validate_handler: Any, metadata_handler: tuple[Any, Any]
-) -> None:
-    """A stale declared Config_Blob version never survives to the index.
-
-    The producer declares ``9.9.9`` (ignored) while the document embeds
-    ``1.0.0``. Validate must emit the content version; metadata must index the
-    content version — proven across the real boundary, not within one suite.
-    """
-    bundle = build_bundle(
-        config_bytes=config_blob_body(oscal_schema_version="9.9.9"),
-        layer_bytes=catalog_blob_bytes(oscal_version="1.0.0"),
-    )
-    detail = _emitted_validated_detail(validate_handler, bundle)
-
-    # The stale declared value rides along in configBlob (tolerated-and-ignored)...
-    assert detail["configBlob"].get("oscalSchemaVersion") == "9.9.9"
-    # ...but the per-layer content version is the contract field.
-    assert detail["layers"][0]["oscal"]["oscalSchemaVersion"] == "1.0.0"
-
-    item = _index(metadata_handler, detail)
-    assert item["layers"][0]["oscal"]["oscalSchemaVersion"] == "1.0.0"
-    assert item["layers"][0]["oscal"]["oscalSchemaVersion"] != "9.9.9"

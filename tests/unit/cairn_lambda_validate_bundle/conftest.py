@@ -76,25 +76,16 @@ def catalog_blob_bytes(
     ).encode("utf-8")
 
 
-def config_blob_body(
-    *,
-    project_id: str = "alpha-bank",
-    oscal_schema_version: str | None = OSCAL_VERSION,
-) -> bytes:
+def config_blob_body(*, project_id: str = "alpha-bank") -> bytes:
     """The content Config_Blob.
 
-    Carries only content-descriptive fields — projectId and the
-    tolerated-and-ignored oscalSchemaVersion. artifact-kind is carried solely by
-    the Producer_Attestation_Referrer ``artifactKind`` claim (see ``attestation_claim``),
-    not the content manifest. The producer claim fields (accountId, controls,
-    catalogOrProfileUuid, assessmentPeriod) likewise live in the referrer.
+    Carries only content-descriptive fields (projectId). artifact-kind is carried
+    solely by the Producer_Attestation_Referrer ``artifactKind`` claim (see
+    ``attestation_claim``), not the content manifest. The producer claim fields
+    (accountId, controls, catalogOrProfileUuid, assessmentPeriod) likewise live in
+    the referrer.
     """
-    payload: dict[str, Any] = {
-        "projectId": project_id,
-    }
-    if oscal_schema_version is not None:
-        payload["oscalSchemaVersion"] = oscal_schema_version
-    return json.dumps(payload).encode("utf-8")
+    return json.dumps({"projectId": project_id}).encode("utf-8")
 
 
 def attestation_claim(
