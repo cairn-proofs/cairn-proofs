@@ -9,17 +9,10 @@ context: |
   (signing), S3 with optional Object Lock Compliance (durable archive),
   DynamoDB (metadata index), EventBridge-driven Lambda pipeline.
 
-  Implementation: TypeScript CDK (cdk/) + Python 3.12 (Lambdas, libs,
-  CLI). Language runtimes pinned via mise.toml (Node 26, Python 3.12);
+  Implementation: TypeScript CDK (cdk/) + Python 3 (Lambdas, libs,
+  CLI). Language runtimes pinned via mise.toml;
   Python deps managed by uv as a workspace; pre-commit wires ruff and
   `openspec validate --specs --strict`.
-
-  Spec authoring model: openspec/specs/ describes the
-  CURRENT STATE of the system as built. Deferred/future work is never 
-  specified in openspec/specs/; it is captured in the backlog and enters 
-  the specs only when a backlog item graduates into an OpenSpec change 
-  and that change's delta archives. Backlog = work to be done; 
-  changes = work in progress; specs = current state. 
 
   Commit format: Conventional Commits. 
 
@@ -29,9 +22,7 @@ context: |
   meanings, and add any new Capitalized_Underscore domain term there in the same
   change that introduces it.
 
-  See ./AGENTS.md for the broader project context applied to any agent
-  session in this repository, and README.md for the human-facing system
-  overview.
+  All artifacts must be written with the skill /asd-ste100
 
 # Per-artifact rules (optional)
 # Add custom rules for specific artifacts.
