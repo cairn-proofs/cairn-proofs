@@ -860,7 +860,6 @@ def test_non_oscal_only_bundle_row_stores_layers_and_no_oscal_version(
     event = validated_event(
         md=md,
         layers=[non_oscal_layer(title="screenshot.png", media_type="image/png")],
-        config_blob_oscal_schema_version=None,
     )
 
     handler.lambda_handler(event, lambda_context)
@@ -883,7 +882,7 @@ def test_layers_stored_verbatim_preserving_order_and_title_omission(
     first = {"digest": "sha256:" + "1" * 64, "size": 5, "mediaType": "text/plain", "title": "a.txt"}
     # Second entry has NO title key at all (validate omits it for a title-less layer).
     second = {"digest": "sha256:" + "2" * 64, "size": 6, "mediaType": "image/png"}
-    event = validated_event(md=md, layers=[first, second], config_blob_oscal_schema_version=None)
+    event = validated_event(md=md, layers=[first, second])
 
     handler.lambda_handler(event, lambda_context)
 

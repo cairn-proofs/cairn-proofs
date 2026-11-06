@@ -82,12 +82,18 @@ def test_resource_artifact_type_does_not_drive_skip_decision(config_media_type: 
 
 
 def test_config_blob_minimal_construction() -> None:
-    # Reduced model: only project-id (required) and the tolerated
-    # oscalSchemaVersion remain. The claim fields AND bundleType (artifact-kind)
-    # are gone — kind left the content manifest.
+    # project-id is the only required field. The claim fields and artifact-kind
+    # are not Config_Blob fields.
     cb = ConfigBlob(projectId="alpha-bank")
     assert cb.project_id == "alpha-bank"
-    assert cb.oscal_schema_version is None
+    assert cb.oscal_references is None
+
+
+def test_config_blob_minimal_serialization_is_project_id_only() -> None:
+    # The Config_Blob bytes feed the content Manifest_Digest. The minimal model
+    # serializes, as the CLI does it (by alias, exclude_none), to projectId alone.
+    cb = ConfigBlob(projectId="alpha-bank")
+    assert cb.model_dump_json(by_alias=True, exclude_none=True) == '{"projectId":"alpha-bank"}'
 
 
 def test_config_blob_round_trips_by_alias() -> None:
@@ -112,7 +118,6 @@ def test_config_blob_relocated_claim_fields_are_not_model_fields() -> None:
     # And the content-descriptive fields remain. projectId stays in the digest (Req 318).
     assert "project_id" in ConfigBlob.model_fields
     assert "oscal_references" in ConfigBlob.model_fields
-    assert "oscal_schema_version" in ConfigBlob.model_fields
 
 
 def test_config_blob_allows_extra_fields() -> None:
@@ -173,25 +178,8 @@ def test_config_blob_with_oscal_references() -> None:
     cb = ConfigBlob.model_validate(
         {
             "projectId": "p",
-            "oscalSchemaVersion": "1.1.2",
             "oscalReferences": {"arUuid": "ar-1"},
         }
     )
-    assert cb.oscal_schema_version == "1.1.2"
     assert cb.oscal_references is not None
     assert cb.oscal_references.ar_uuid == "ar-1"
-
-
-def test_config_blob_tolerates_declared_oscal_schema_version() -> None:
-    # Back-compat: a declared oscalSchemaVersion is tolerated-and-ignored — the
-    # OSCAL schema version is now content-derived. The model still validates and
-    # round-trips when a producer supplies the field.
-    cb = ConfigBlob.model_validate(
-        {
-            "projectId": "p",
-            "oscalSchemaVersion": "1.1.2",
-        }
-    )
-    assert cb.oscal_schema_version == "1.1.2"
-    # And it is preserved on by-alias re-serialization (tolerated, not dropped).
-    assert cb.model_dump(by_alias=True)["oscalSchemaVersion"] == "1.1.2"

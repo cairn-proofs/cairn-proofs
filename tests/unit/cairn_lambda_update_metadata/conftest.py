@@ -89,7 +89,6 @@ def validated_event(
     event_time: str = "2026-05-26T12:05:00Z",
     repo_name: str = REPO_NAME,
     layers: list[dict[str, Any]] | None = None,
-    config_blob_oscal_schema_version: str | None = "1.2.1",
 ) -> dict[str, Any]:
     md_value = md or manifest_digest("a")
     # configBlob carries content-descriptive fields only; the producer's
@@ -97,12 +96,6 @@ def validated_event(
     # onto the event under `attestation` (camelCase, exclude_none). The
     # Metadata_Index record holds only system-bounded facts; the claim's control
     # linkage feeds the producer-claims control-claims projection ([PCLAIM-001]).
-    config_blob: dict[str, Any] = {}
-    # Declared oscalSchemaVersion is tolerated-and-ignored on ingestion. Keep it
-    # on the fixture by default (existing producers still emit it) so tests can
-    # prove the record carries no record-level oscalSchemaVersion regardless.
-    if config_blob_oscal_schema_version is not None:
-        config_blob["oscalSchemaVersion"] = config_blob_oscal_schema_version
     # Attestation referrer claim projection — the source for the identity triple
     # AND the control-claims fan-out ([PCLAIM-001]).
     attestation = _attestation(
@@ -128,7 +121,7 @@ def validated_event(
             "region": REGION,
             "ecrPushedAt": event_time,
             "temporalConsistencyWarning": False,
-            "configBlob": config_blob,
+            "configBlob": {},
             "attestation": attestation,
             "manifestAnnotations": {"dev.cairnproofs.artifact.project-id": project_id},
             "authenticatedPushPrincipal": {

@@ -311,7 +311,7 @@ def test_property_3_verify_digest_truth_table(blob: bytes, other: bytes) -> None
 
 
 # ---------------------------------------------------------------------------
-# [INGEST-017.07] (a-e) — Bundle validation completeness
+# [INGEST-017.07] (a-d) — Bundle validation completeness
 # ---------------------------------------------------------------------------
 
 
@@ -327,10 +327,7 @@ def test_property_4a_any_missing_required_manifest_annotation_rejected(missing: 
     type `application/vnd.cairnproofs.artifact.config.v1+json` and contains valid JSON
     with required fields including a well-formed `catalogOrProfileUuid`, (d) the
     manifest `bundle-type` annotation value is in the Artifact_Kind controlled
-    vocabulary, and (e) for bundles containing any layer with an
-    `application/oscal.*` media type, the Config_Blob includes a non-empty
-    `oscalSchemaVersion` field; on failure the error identifies all failing
-    criteria.
+    vocabulary; on failure the error identifies all failing criteria.
 
     Source: artifact-ingestion/spec.md:216-219 ([INGEST-017.07], criterion a).
     """
@@ -425,45 +422,6 @@ def test_property_4d_bundle_type_inside_vocabulary_does_not_trigger_d(category: 
     )
 
 
-@given(
-    has_oscal_layer=st.booleans(),
-    declared_version=st.one_of(st.none(), st.just(""), st.just("1.1.2")),
-)
-def test_property_4e_oscal_schema_version_is_never_a_validation_criterion(
-    has_oscal_layer: bool, declared_version: str | None
-) -> None:
-    """**WHEN** an Evidence_Bundle is validated **THEN** the former [INGEST-017.07]
-    criterion (e) never fires: the OSCAL schema version is content-derived during
-    extraction, not a declared Config_Blob acceptance criterion, so a missing,
-    empty, or present `oscalSchemaVersion` is irrelevant to bundle validation
-    (there is no declared-version criterion (e)). Acceptance criteria
-    are (a)-(d),(h).
-    """
-    manifest_dict = _valid_manifest_dict()
-    if has_oscal_layer:
-        manifest_dict["layers"].append(
-            {
-                "mediaType": "application/oscal.assessment-results+json",
-                "digest": "sha256:" + "f" * 64,
-                "size": 100,
-                "annotations": {LAYER_REQUIRED_TITLE: "ar.json"},
-            }
-        )
-    config = {
-        "projectId": "alpha-bank",
-        "catalogOrProfileUuid": "22222222-2222-4222-8222-222222222222",
-        "assessmentPeriod": "2026-q1",
-    }
-    if declared_version is not None:
-        config["oscalSchemaVersion"] = declared_version
-    manifest = OciManifest.model_validate(manifest_dict)
-    result = validate_bundle(manifest, json.dumps(config).encode("utf-8"))
-    assert not any(e.criterion == "e" for e in result.errors), (
-        f"criterion (e) must never fire (removed); declared_version={declared_version!r}, "
-        f"has_oscal_layer={has_oscal_layer}, errors={result.errors}"
-    )
-
-
 # ---------------------------------------------------------------------------
 # [INGEST-018.02] — Uniform repository path construction
 # ---------------------------------------------------------------------------
@@ -541,44 +499,3 @@ def test_property_5_uniform_repo_path_rejects_invalid_segment(
     kwargs[position] = bad_segment
     with pytest.raises(InvalidIdError):
         _LOCATOR.repo_name(**kwargs)
-
-
-# ---------------------------------------------------------------------------
-# OSCAL schema version is content-derived ([OSCAL-001])
-# ---------------------------------------------------------------------------
-# The OSCAL schema version is derived from the document's own
-# metadata.oscal-version; there is no producer-declared `oscalSchemaVersion` and
-# no declared<->embedded cross-check.
-
-
-@given(has_oscal_layer=st.booleans())
-def test_oscal_schema_version_is_not_a_declared_validation_criterion(
-    has_oscal_layer: bool,
-) -> None:
-    """**WHEN** an Evidence_Bundle with or without an `application/oscal.*` layer
-    is validated and its Config_Blob omits `oscalSchemaVersion` **THEN** the
-    Evidence_Store does NOT raise the former criterion (e): the OSCAL schema
-    version is content-derived during extraction, never a declared Config_Blob
-    acceptance criterion ([OSCAL-001] — single source of truth is the
-    document's metadata.oscal-version).
-    """
-    manifest_dict = _valid_manifest_dict()
-    if has_oscal_layer:
-        manifest_dict["layers"].append(
-            {
-                "mediaType": "application/oscal.system-security-plan+json",
-                "digest": "sha256:" + "a" * 64,
-                "size": 100,
-                "annotations": {LAYER_REQUIRED_TITLE: "ssp.json"},
-            }
-        )
-    config_body_no_version = json.dumps(
-        {
-            "projectId": "alpha-bank",
-            "catalogOrProfileUuid": "22222222-2222-4222-8222-222222222222",
-            "assessmentPeriod": "2026-q1",
-        }
-    ).encode("utf-8")
-    manifest = OciManifest.model_validate(manifest_dict)
-    result = validate_bundle(manifest, config_body_no_version)
-    assert not any(e.criterion == "e" for e in result.errors)

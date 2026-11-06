@@ -386,9 +386,9 @@ def test_criterion_d_surviving_alias_literal_resolves_and_passes() -> None:
 
 
 # ---------------------------------------------------------------------------
-# OSCAL schema version is NOT a Config_Blob acceptance criterion (criterion (e)
-# removed). The version is derived from the OSCAL document's own content during
-# extraction; a declared `oscalSchemaVersion` is never a validate_bundle concern.
+# OSCAL-bearing bundles. The OSCAL schema version is read from each layer's
+# `metadata.oscal-version` during extraction ([OSCAL-001]), not by
+# validate_bundle.
 # ---------------------------------------------------------------------------
 
 
@@ -407,30 +407,13 @@ def _oscal_layer_manifest() -> OciManifest:
     )
 
 
-def test_oscal_bundle_without_schema_version_is_accepted() -> None:
+def test_oscal_bundle_is_accepted() -> None:
     result = validate_bundle(_oscal_layer_manifest(), VALID_CONFIG_BODY)
     assert result.ok, result.errors
     assert result.errors == []
-    assert not any(e.criterion == "e" for e in result.errors)
-    assert not any("oscalSchemaVersion" in (e.field or "") for e in result.errors)
 
 
-def test_declared_schema_version_is_not_a_failed_criterion() -> None:
-    config = json.dumps(
-        {
-            "projectId": "alpha-bank",
-            "bundleType": "assessment-results",
-            # A stale/arbitrary declared value — tolerated and ignored.
-            "oscalSchemaVersion": "1.0.0",
-        }
-    ).encode("utf-8")
-    result = validate_bundle(_oscal_layer_manifest(), config)
-    assert result.ok, result.errors
-    assert not any(e.criterion == "e" for e in result.errors)
-    assert not any("oscalSchemaVersion" in (e.field or "") for e in result.errors)
-
-
-def test_non_oscal_bundle_without_schema_version_is_accepted() -> None:
+def test_non_oscal_bundle_is_accepted() -> None:
     result = validate_bundle(_valid_manifest(), VALID_CONFIG_BODY)
     assert result.ok
 

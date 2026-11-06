@@ -6,12 +6,11 @@ every 1.x producer. The dispatcher parses any OSCAL layer with the single
 shipped binding via `OscalDoc.from_json` (the union RootModel
 self-discriminates the root model with no version hint), then derives the
 schema version from the parsed document's own `metadata.oscal-version`
-and gates it to a supported 1.x string. The version is NOT
-producer-declared — the Config_Blob `oscalSchemaVersion` field is not
-read. When OSCAL 2.0 ships, the same content read is the seam that
-grows a version registry; see the "Major-version namespace" decision in
-oscal-bindings' DEVELOPING.md (bindings live in `oscal_bindings.v1`; 2.0
-gets its own version subpackage, `oscal_bindings.v2`).
+and gates it to a supported 1.x string. When OSCAL 2.0 ships, the same
+content read is the seam that grows a version registry; see the
+"Major-version namespace" decision in oscal-bindings' DEVELOPING.md
+(bindings live in `oscal_bindings.v1`; 2.0 gets its own version
+subpackage, `oscal_bindings.v2`).
 
 `parse_oscal_layer` enforces a hard size cap on producer-supplied bytes
 before invoking the JSON parser. Evidence-ingestion permits per-layer
