@@ -1,8 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/kiro-agent.json",
   "name": "code-simplifier",
-  "description": "Use when code needs to be cleaned up, made more readable, or reduced in complexity \u2014 without changing behavior. Triggers on \"simplify this\", \"this is too complex\", \"clean this up\", \"refactor for clarity\", \"this is hard to read\", or \"reduce nesting/complexity\".",
-  "prompt": "file://../agent-prompts/code-simplifier.md",
+  "description": "Use when code needs to be cleaned up, made more readable, or reduced in complexity — without changing behavior. Triggers on \"simplify this\", \"this is too complex\", \"clean this up\", \"refactor for clarity\", \"this is hard to read\", or \"reduce nesting/complexity\".",
   "tools": [
     "code",
     "glob",
@@ -47,13 +46,15 @@
         "uv run ruff.*",
         "uv run pytest.*",
         "mise run cdk-test.*",
-        "openspec .*",
+        "openspec list.*",
+        "openspec status.*",
+        "openspec instructions.*",
+        "openspec validate.*",
         "git diff.*",
         "git log.*",
         "git status.*",
         "git show.*",
         "grep .*",
-        "sed -n .*",
         "cat .*",
         "ls .*",
         "echo .*",
@@ -80,10 +81,14 @@
         ".*mise run check.*",
         ".*mise run semgrep.*",
         "uv run ruff.*--unsafe-fixes.*",
-        "rm -rf .*"
+        "rm -rf .*",
+        ".*>\\s*openspec/.*",
+        ".*>\\s*\\.kiro/.*",
+        ".*tee .*openspec/.*",
+        ".*tee .*\\.kiro/.*"
       ],
       "autoAllowReadonly": true,
-      "denyByDefault": false
+      "denyByDefault": true
     }
   },
   "resources": [
@@ -98,13 +103,15 @@
           "uv run ruff*",
           "uv run pytest*",
           "mise run cdk-test*",
-          "openspec *",
+          "openspec list*",
+          "openspec status*",
+          "openspec instructions*",
+          "openspec validate*",
           "git diff*",
           "git log*",
           "git status*",
           "git show*",
           "grep *",
-          "sed -n *",
           "cat *",
           "ls *",
           "echo *",
@@ -135,7 +142,47 @@
           "*mise run check*",
           "*mise run semgrep*",
           "uv run ruff*--unsafe-fixes*",
-          "rm -rf *"
+          "rm -rf *",
+          "*> openspec/*",
+          "*>openspec/*",
+          "*> .kiro/*",
+          "*>.kiro/*",
+          "*tee *openspec/*",
+          "*tee *.kiro/*"
+        ],
+        "effect": "deny"
+      },
+      {
+        "capability": "shell",
+        "match": [
+          "*"
+        ],
+        "exclude": [
+          "cat *",
+          "echo *",
+          "git --no-pager diff*",
+          "git --no-pager log*",
+          "git --no-pager show*",
+          "git --no-pager status*",
+          "git branch --show-current*",
+          "git check-ignore*",
+          "git diff*",
+          "git log*",
+          "git show*",
+          "git status*",
+          "grep *",
+          "head *",
+          "ls *",
+          "mise run cdk-test*",
+          "openspec instructions*",
+          "openspec list*",
+          "openspec status*",
+          "openspec validate*",
+          "tail *",
+          "uv run pytest*",
+          "uv run ruff*",
+          "wc *",
+          "which *"
         ],
         "effect": "deny"
       },
@@ -172,10 +219,6 @@
       },
       {
         "capability": "fs_read",
-        "effect": "allow"
-      },
-      {
-        "capability": "shell",
         "effect": "allow"
       },
       {
