@@ -204,6 +204,9 @@ export function synthApp(): App {
     // `cdk --context retentionPeriodDays=N` / `unarchivedManifestWindowDays=N`.
     retentionPeriodDays: numberContext(app, 'retentionPeriodDays'),
     unarchivedManifestWindowDays: numberContext(app, 'unarchivedManifestWindowDays'),
+    // [OSCAL-001]: per-layer OSCAL size limit, `cdk --context maxOscalLayerBytes=N`.
+    // Bounds are checked at synth by the stack; unset uses the cairn_oscal default.
+    maxOscalLayerBytes: numberContext(app, 'maxOscalLayerBytes'),
     prunerPrincipalArns,
     integCleanupPrincipalArns: resolveIntegCleanupPrincipalArns(account, prunerPrincipalArns),
   });

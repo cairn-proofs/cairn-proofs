@@ -42,4 +42,5 @@ None.
 4. Tests: unit tests under `tests/unit/cairn_oscal/`, `tests/unit/cairn_lambda_validate_bundle/`, `tests/unit/cairn_lambda_update_metadata/`, `tests/unit/cairn_validation/`, and `tests/unit/cairn_cli/`, CDK tests under `cdk/test/`, plus `tests/integration/test_pipeline_failure_paths.py`.
 5. Producers: a producer that sets a per-model OSCAL media type with `oras` or the direct API gets a permanent validation failure after deploy. `cairn push` users get the new type after they update the CLI. An older CLI emits the per-model form, and its pushes fail until the user updates it. Under the default limit, an OSCAL layer between 16 MiB and 64 MiB that passed before now fails.
 6. Stored data: no change. Archived bundles are immutable and keep their recorded layer media types. `cairn verify` does not branch on layer media type.
-7. IAM and dependencies: no change. The validate Lambda keeps 1,024 MB.
+7. Lambda memory: the validate Lambda goes from 1,024 MB to 1,769 MB, so that a dense layer at the 16 MiB default (measured peak 870 MiB) leaves room for the runtime and the ADOT collector. 1,769 MB is the size at which Lambda allocates one full vCPU. The cost per millisecond of a validate run rises by about 73%.
+8. IAM and dependencies: no change.

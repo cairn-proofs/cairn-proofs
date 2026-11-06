@@ -5,8 +5,8 @@
 | Field | Value |
 |---|---|
 | Model | `adopt-nist-oscal-media-type.tc.json` |
-| Model SHA-256 | `f60fd433e135de22228cf49b44806310af91c646507b7ba8c37585439e6fc8b9` |
-| Gate | PASSED (propose) |
+| Model SHA-256 | `2d2ec36678f21cacbebf3551075b87b6a7f7d3c73a140dc7920bac56f7bdb58e` |
+| Gate | PASSED |
 | Threats | 13 |
 | Mitigations | 15 |
 | Assumptions | 26 |

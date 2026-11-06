@@ -80,6 +80,6 @@ cairn push --target acme-co/acme/corp-webapp --assessment-period 2026-q1 \
 > - old (positional, or single `--project-id`): `cairn push acme 2026-q2 report.json` / `cairn push --project-id acme report.json`
 > - new (full triple, or a persisted default): `cairn push --target acme-co/acme/payments --assessment-period 2026-q2 report.json`
 
-Constraints: a bundle holds **1–300 layers**. Use distinct filenames within a push — the filename is the layer title and becomes the output filename on `cairn pull`, which refuses to overwrite, so two layers sharing a name would collide on extraction.
+Constraints: a bundle holds **1–300 layers**. OSCAL JSON layers use the media type `application/oscal+json` for every OSCAL model; `cairn push` sets it from the document root key. The pipeline rejects any other OSCAL media type, such as `application/oscal.catalog+json`. Each OSCAL layer has a size limit, **16 MiB by default**, that the deployment can change; the pipeline rejects a larger OSCAL layer with an error that states the limit that applies. Use distinct filenames within a push — the filename is the layer title and becomes the output filename on `cairn pull`, which refuses to overwrite, so two layers sharing a name would collide on extraction.
 
 `cairn query` emits matching records as JSONL on stdout. When a pagination token is present, it is written to STDERR as `__next_token__: <token>` so stdout stays a clean JSONL stream for downstream `jq` pipelines.

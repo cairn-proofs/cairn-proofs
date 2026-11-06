@@ -140,7 +140,7 @@ def validated_event(
 def oscal_layer(
     *,
     schema_version: str = "1.2.1",
-    media_type: str = "application/oscal.assessment-results+json",
+    media_type: str = "application/oscal+json",
     layer_digest: str | None = None,
 ) -> dict[str, Any]:
     """A unified ``layers`` event entry for an OSCAL layer as emitted by validate's

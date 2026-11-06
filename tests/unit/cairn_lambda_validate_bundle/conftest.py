@@ -18,6 +18,7 @@ from typing import Any
 
 import boto3
 import pytest
+from cairn_lambda_validate_bundle.ecr_client import BlobSizeLimitExceeded
 from cairn_oci import (
     CONFIG_BLOB_MEDIA_TYPE,
     INTOTO_STATEMENT_MEDIA_TYPE,
@@ -175,7 +176,7 @@ def build_bundle(
     repo_name: str = REPO_NAME,
     config_bytes: bytes | None = None,
     layer_bytes: bytes | None = None,
-    layer_media_type: str = "application/oscal.catalog+json",
+    layer_media_type: str = "application/oscal+json",
     config_media_type: str = CONFIG_BLOB_MEDIA_TYPE,
     layer_title: str | None = "catalog.json",
     annotations_override: dict[str, str | None] | None = None,
@@ -588,6 +589,8 @@ class FakeEcr:
     blobs: dict[str, bytes] = field(default_factory=dict)
     manifest_fetch_log: list[tuple[str, str, str]] = field(default_factory=list)
     blob_fetch_log: list[tuple[str, str, str]] = field(default_factory=list)
+    # The ``max_bytes`` argument of each fetch_blob call, in call order.
+    blob_fetch_max_bytes: list[int | None] = field(default_factory=list)
     fetch_blob_side_effects: dict[str, Exception] = field(default_factory=dict)
     fetch_manifest_side_effects: dict[str, Exception] = field(default_factory=dict)
     # (repository_name, image_digest) pairs that exist — backs the subject-scope
@@ -619,11 +622,23 @@ class FakeEcr:
             raise self.fetch_manifest_side_effects[image_digest]
         return self.manifests[image_digest]
 
-    def fetch_blob(self, *, registry_id: str, repository_name: str, blob_digest: str) -> bytes:
+    def fetch_blob(
+        self,
+        *,
+        registry_id: str,
+        repository_name: str,
+        blob_digest: str,
+        max_bytes: int | None = None,
+    ) -> bytes:
+        """Mirrors ``ecr_client.fetch_blob``, including the ``max_bytes`` bound."""
         self.blob_fetch_log.append((registry_id, repository_name, blob_digest))
+        self.blob_fetch_max_bytes.append(max_bytes)
         if blob_digest in self.fetch_blob_side_effects:
             raise self.fetch_blob_side_effects[blob_digest]
-        return self.blobs[blob_digest]
+        blob = self.blobs[blob_digest]
+        if max_bytes is not None and len(blob) > max_bytes:
+            raise BlobSizeLimitExceeded(blob_digest, limit=max_bytes)
+        return blob
 
     def image_resides_in_repo(
         self, *, registry_id: str, repository_name: str, image_digest: str

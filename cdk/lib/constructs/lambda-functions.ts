@@ -54,6 +54,12 @@ export interface LambdaFunctionsProps {
    * selector, and fails the archive closed when it is invalid.
    */
   readonly retentionParamName: string;
+  /**
+   * Per-layer OSCAL size limit in bytes ([OSCAL-001]). When set, validate-bundle
+   * gets `MAX_OSCAL_LAYER_BYTES`; when not set, the variable is absent and the
+   * handler uses the `cairn_oscal` default.
+   */
+  readonly maxOscalLayerBytes?: number;
 }
 
 /**
@@ -75,7 +81,7 @@ const DDB_WRITE_ACTIONS = ['dynamodb:PutItem', 'dynamodb:UpdateItem', 'dynamodb:
  * The four pipeline Lambdas — wires Stream B handler code (lambda-bundles/*)
  * to Stream A infrastructure. Each function:
  *
- * - Python 3.12 / arm64 / 1024 MB / timeout per stage profile.
+ * - Python 3.12 / arm64 / memory and timeout per stage profile.
  * - Code from `lambda-bundles/<name>/` (built by `cdk/scripts/build-lambdas.sh`).
  * - Pre-created log group from the LogGroups construct (consistent retention).
  * - Pre-created SQS DLQ from the DeadLetterQueues construct, attached as
@@ -293,7 +299,10 @@ export class LambdaFunctions extends Construct {
       architecture: Architecture.ARM_64,
       handler: 'cairn_lambda_validate_bundle.handler.lambda_handler',
       code: Code.fromAsset(path.join(LAMBDA_BUNDLES, 'validate_bundle')),
-      memorySize: 1024,
+      // 1,769 MB gives one full vCPU for the single-threaded OSCAL parse and
+      // leaves room for the runtime and the ADOT collector above the measured
+      // 870 MiB peak for dense OSCAL layers at the 16 MiB default limit.
+      memorySize: 1769,
       timeout: Duration.minutes(5),
       logGroup: logGroups.validateBundle,
       deadLetterQueueEnabled: true,
@@ -305,6 +314,10 @@ export class LambdaFunctions extends Construct {
         ARCHIVE_BUCKET: archiveBucket.bucketName,
         METADATA_TABLE_NAME: metadataTable.tableName,
         VALIDATE_DLQ_URL: deadLetterQueues.validateBundle.queueUrl,
+        // Set only when the deployment sets maxOscalLayerBytes ([OSCAL-001]).
+        ...(props.maxOscalLayerBytes !== undefined
+          ? { MAX_OSCAL_LAYER_BYTES: String(props.maxOscalLayerBytes) }
+          : {}),
       },
     });
     eventBus.bus.grantPutEventsTo(this.validateBundle);

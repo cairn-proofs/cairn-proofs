@@ -62,7 +62,7 @@ flowchart TB
     defbus{{"default bus · rule cairnproofs4af-ecr-push-cmh-alpha<br/>admits: success · artifact-repo prefix · non-pipeline principal"}}
     custbus{{"custom bus: cairnproofs4af-artifact-cmh-alpha<br/>source dev.cairnproofs.artifact<br/>detail-types artifact.validated · signed · archived · tagged · *-failed<br/>events carry W3C traceparent / baggage"}}
 
-    val["validate-bundle<br/>trigger = Producer_Attestation_Referrer (artifactType); all else SKIP<br/>Property-4 + bounds (≤10GiB/layer · 1..300 layers) + OSCAL extract"]
+    val["validate-bundle<br/>trigger = Producer_Attestation_Referrer (artifactType); all else SKIP<br/>Property-4 + bounds (≤10GiB/layer · 1..300 layers · OSCAL layer ≤ maxOscalLayerBytes, 16 MiB default) + OSCAL extract"]
     sign["sign-bundle<br/>Notation layer"]
     arch["archive-to-s3<br/>SHA-256 check"]
     mint["mint-tag<br/>pipeline TAIL · mint canonical _ref tag (idempotent PutImage)"]
@@ -193,7 +193,7 @@ The S3 archive bucket is versioned + KMS-CMK (S3 Bucket Keys off) + lifecycle-ti
 
 `update-metadata` subscribes to `artifact.validated`, `artifact.signed`, `artifact.signing-failed`, `artifact.archived`, and `artifact.archive-failed` — **not** `artifact.validation-failed` (no `Metadata_Index` row exists yet for that).
 
-The five Lambdas are arm64 Python 3.12 with per-stage memory/timeout: `validate-bundle` (1024 MB / 5 min), `sign-bundle` (1024 MB / 3 min, Notation layer mounted), `archive-to-s3` (2048 MB / 10 min, sized for blob-stream throughput), `update-metadata` (512 MB / 2 min), `mint-tag` (512 MB / 2 min).
+The five Lambdas are arm64 Python 3.12 with per-stage memory/timeout: `validate-bundle` (1769 MB / 5 min, sized for OSCAL parse memory at the per-layer limit), `sign-bundle` (1024 MB / 3 min, Notation layer mounted), `archive-to-s3` (2048 MB / 10 min, sized for blob-stream throughput), `update-metadata` (512 MB / 2 min), `mint-tag` (512 MB / 2 min).
 
 ### Fact 7 — Ingress is event-driven, not synchronous
 

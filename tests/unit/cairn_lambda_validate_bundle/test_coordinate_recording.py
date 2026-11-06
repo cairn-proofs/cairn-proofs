@@ -193,8 +193,8 @@ def test_validated_non_oscal_bundle_records_no_name(
     NOT reached into for a name. Parity with the OSCAL case is the anti-favoritism
     guard: neither content type gets a content-derived canonical-tag name."""
     handler = reload_handler
-    # A non-OSCAL content layer: arbitrary media type, no application/oscal.*
-    # prefix, carrying the pushed-filename annotation.
+    # A non-OSCAL content layer: arbitrary media type outside the OSCAL
+    # media-type family, carrying the pushed-filename annotation.
     bundle = build_bundle(
         layer_media_type="application/pdf",
         layer_bytes=b"%PDF-1.7 not-oscal",
@@ -223,7 +223,7 @@ def test_oscal_and_non_oscal_bundles_record_identical_coordinate_shape(
     granted no content-derived naming a non-OSCAL bundle is denied."""
     handler = reload_handler
 
-    oscal_bundle = build_bundle()  # application/oscal.catalog+json layer
+    oscal_bundle = build_bundle()  # application/oscal+json catalog layer
     _validate(handler, oscal_bundle, lambda_context)
     oscal_record = fake_index.get_record(
         manifest_digest=oscal_bundle.manifest_digest, project_id="alpha-bank", tenant_id=TENANT_ID
@@ -282,7 +282,7 @@ def test_oscal_per_layer_projection_is_still_produced(
     OSCAL bundle's emitted ``layers`` still carry the ``oscal`` sub-object
     (``oscalSchemaVersion`` + ``metadata``) re-derived from the parsed blob."""
     handler = reload_handler
-    bundle = build_bundle()  # application/oscal.catalog+json layer, oscal-version 1.2.1
+    bundle = build_bundle()  # application/oscal+json catalog layer, oscal-version 1.2.1
     _attestation, event = submit(handler, bundle=bundle)
 
     handler.lambda_handler(event, lambda_context)

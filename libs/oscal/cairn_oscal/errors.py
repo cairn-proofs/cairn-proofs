@@ -14,6 +14,8 @@ OscalErrorKind = Literal[
     "unsupported_version",
     "parse_failure",
     "unsupported_doc_type",
+    "unsupported_media_type",
+    "oscal_layer_too_large",
 ]
 
 

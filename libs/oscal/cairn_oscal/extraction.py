@@ -99,7 +99,7 @@ class OscalLayerMetadata(BaseModel):
     assessment_period_end: date | None = None
 
 
-def extract_oscal_metadata(doc: OscalDoc) -> OscalLayerMetadata:
+def extract_oscal_metadata(doc: OscalDoc, *, layer_digest: str | None = None) -> OscalLayerMetadata:
     """Extract Metadata_Index-bound fields from one parsed OSCAL document.
 
     Project name is taken from `metadata.title`. The in-band
@@ -108,6 +108,8 @@ def extract_oscal_metadata(doc: OscalDoc) -> OscalLayerMetadata:
     `published` is left `None` when the document omits it). Control
     references are extracted for SSP and AR (other doc types yield `[]`).
     Assessment period is populated only for AP and AR bodies.
+
+    `layer_digest` names the layer on a raised `OscalExtractionError`.
 
     Raises:
         OscalExtractionError(error_kind="unsupported_doc_type"): If the
@@ -124,6 +126,7 @@ def extract_oscal_metadata(doc: OscalDoc) -> OscalLayerMetadata:
         raise OscalExtractionError(
             f"Unsupported OSCAL document body type: {body_type.__name__}",
             error_kind="unsupported_doc_type",
+            layer_digest=layer_digest,
         ) from e
 
     control_references: list[str] = []

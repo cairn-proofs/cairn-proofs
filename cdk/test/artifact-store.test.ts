@@ -52,7 +52,7 @@ const TEST_PRUNER_PRINCIPALS = [
 // posture is `isProd || alarmActionsEnabled`. Defaults are the alpha config
 // (isProd=false, opt-in omitted).
 function makeStack(
-  overrides: { isProd?: boolean; alarmActionsEnabled?: boolean } = {},
+  overrides: { isProd?: boolean; alarmActionsEnabled?: boolean; maxOscalLayerBytes?: number } = {},
 ): ArtifactStoreStack {
   const app = new App({ outdir: OUTDIR });
   return new ArtifactStoreStack(app, 'TestStack', {
@@ -2725,4 +2725,54 @@ describe('resolveDeployConfig — env-sourced account/region, fail-fast, no sile
       }),
     ).toThrow(/No region code registered for region 'eu-west-1'/);
   });
+});
+
+// ─── Per-layer OSCAL size limit and validate-bundle memory ([OSCAL-001]) ───
+
+describe('maxOscalLayerBytes deployment setting', () => {
+  const VALIDATE_FN = 'cairnproofs4af-validate-bundle-cmh-alpha';
+
+  test('validate-bundle has 1,769 MB of memory', () => {
+    const template = Template.fromStack(makeStack());
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: VALIDATE_FN,
+      MemorySize: 1769,
+    });
+  });
+
+  test('no context sets no MAX_OSCAL_LAYER_BYTES variable on any function', () => {
+    const fns = pipelineFunctionProps(Template.fromStack(makeStack()));
+    expect(Object.keys(fns)).toHaveLength(PIPELINE_FUNCTION_NAMES.length);
+    for (const props of Object.values(fns)) {
+      expect(props.Environment?.Variables ?? {}).not.toHaveProperty('MAX_OSCAL_LAYER_BYTES');
+    }
+  });
+
+  test('a valid value sets the variable on validate-bundle only', () => {
+    const fns = pipelineFunctionProps(
+      Template.fromStack(makeStack({ maxOscalLayerBytes: 33554432 })),
+    );
+    for (const [name, props] of Object.entries(fns)) {
+      const vars = props.Environment?.Variables ?? {};
+      if (name === VALIDATE_FN) {
+        expect(vars.MAX_OSCAL_LAYER_BYTES).toBe('33554432');
+      } else {
+        expect(vars).not.toHaveProperty('MAX_OSCAL_LAYER_BYTES');
+      }
+    }
+  });
+
+  test.each([1, 10 * 1024 ** 3])('the bound %d is accepted', (value) => {
+    const fns = pipelineFunctionProps(Template.fromStack(makeStack({ maxOscalLayerBytes: value })));
+    expect(fns[VALIDATE_FN].Environment?.Variables?.MAX_OSCAL_LAYER_BYTES).toBe(String(value));
+  });
+
+  test.each([0, -1, 1.5, 10 * 1024 ** 3 + 1, Number.NaN])(
+    'the out-of-range value %p fails the synth with the named key',
+    (value) => {
+      expect(() => makeStack({ maxOscalLayerBytes: value })).toThrow(
+        /maxOscalLayerBytes must be a whole number of bytes from 1 to 10737418240/,
+      );
+    },
+  );
 });

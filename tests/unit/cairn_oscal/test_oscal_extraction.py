@@ -444,6 +444,17 @@ def test_unsupported_doc_type_raises_oscal_extraction_error() -> None:
     assert "Catalog" in str(exc_info.value)
 
 
+def test_unsupported_doc_type_carries_layer_digest() -> None:
+    """`layer_digest` reaches the `unsupported_doc_type` error so the
+    failure event names its layer ([OSCAL-005])."""
+    doc = OscalDoc.from_json(minimal_catalog_json())
+    with patch("cairn_oscal.extraction._BODY_TO_DOC_TYPE", {}):
+        with pytest.raises(OscalExtractionError) as exc_info:
+            extract_oscal_metadata(doc, layer_digest="sha256:doctype")
+    assert exc_info.value.error_kind == "unsupported_doc_type"
+    assert exc_info.value.layer_digest == "sha256:doctype"
+
+
 def test_unsupported_doc_type_dict_restored_after_patch() -> None:
     """Sanity check: after the patch context manager exits, normal
     extraction works again. Ensures the previous test's mock doesn't

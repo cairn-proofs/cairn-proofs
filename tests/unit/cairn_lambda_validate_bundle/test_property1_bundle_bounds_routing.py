@@ -93,7 +93,7 @@ def _bundle_with_layers(layers: list[dict[str, Any]]) -> BundleFixture:
 
 def _layer_descriptor(*, digest_seed: str, size: int, title: str) -> dict[str, Any]:
     return {
-        "mediaType": "application/oscal.catalog+json",
+        "mediaType": "application/oscal+json",
         "digest": "sha256:" + (digest_seed * 64)[:64],
         "size": size,
         "annotations": {"org.opencontainers.image.title": title},

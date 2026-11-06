@@ -86,7 +86,7 @@ _LOG_PATH = _FIXTURES_DIR / "secondary_log.txt"
 _MALFORMED_AR_PATH = _FIXTURES_DIR / "malformed_assessment_results.json"
 
 _CONFIG_BLOB_MEDIA_TYPE = CONFIG_BLOB_MEDIA_TYPE
-_OSCAL_AR_MEDIA_TYPE = "application/oscal.assessment-results+json"
+_OSCAL_AR_MEDIA_TYPE = "application/oscal+json"
 _LOG_MEDIA_TYPE = "text/plain"
 _CATALOG_UUID = "22222222-2222-4222-8222-222222222222"
 _ASSESSMENT_PERIOD = "2025-q1"
@@ -318,7 +318,7 @@ def test_malformed_oscal_routes_to_validate_dlq(
 ) -> None:
     """A bundle whose OSCAL AR layer is structurally invalid routes to validate-DLQ.
 
-    Given an Evidence_Bundle whose ``application/oscal.assessment-results+json``
+    Given an Evidence_Bundle whose ``application/oscal+json`` assessment-results
     layer fails OSCAL JSON Schema validation,
     When validate-bundle parses the bundle,
     Then the OSCAL parse error is reported via ``artifact.validation-failed``
