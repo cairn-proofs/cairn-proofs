@@ -60,7 +60,9 @@ curl https://mise.run | sh   # other unix
 # (mise activate runs automatically when entering directories with a mise.toml).
 
 # 2. Provision the entire pinned toolchain (Node 26, Python 3.12, uv, aws,
-#    pre-commit, openspec, mermaid-cli) into mise's per-tool install dirs:
+#    pre-commit, openspec, mermaid-cli) into mise's per-tool install dirs.
+#    Its postinstall hook also installs the ASD-STE100 skill and the git hooks
+#    from .pre-commit-config.yaml (`mise run postinstall` re-runs both):
 mise install
 
 # 3. CDK npm deps
@@ -68,13 +70,6 @@ cd cdk && npm install && cd ..
 
 # 4. Python workspace (.venv at repo root, dev tooling + any uv workspace members)
 uv sync
-
-# 5. Pre-commit hooks
-pre-commit install
-
-# 6. (Optional, threat-model authors only) Provision the headless browser mmdc 
-#    uses to render threat-model diagrams in the OpenSpec propose flow. One-time, idempotent, ~160MB.
-mise run mmdc-setup
 
 ```
 

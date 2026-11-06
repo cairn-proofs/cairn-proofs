@@ -40,10 +40,11 @@ _.file = ".env"
 # gates in parallel. `cdk-synth` is intentionally NOT in check.depends; see
 # openspec/specs/toolchain/spec.md and mise-task-runner/design.md (D3).
 
-# Agents in this repo require the ASD-STE100 skill, so install it automatically
-# after every `mise install` (the task is idempotent; see tasks.install-asd-ste100).
+# After every `mise install`, run the idempotent setup tasks: the ASD-STE100 skill
+# that agents in this repo require (tasks.install-asd-ste100) and the git hooks from
+# .pre-commit-config.yaml (tasks.install-git-hooks). See tasks.postinstall.
 [hooks]
-postinstall = { task = "install-asd-ste100" }
+postinstall = { task = "postinstall" }
 
 [tasks.lint]
 description = "Ruff lint (Python)"
@@ -146,6 +147,10 @@ run = "uv run python openspec/tools/tc.py reconcile"
 description = "Write a change's sanitized threat-model report (usage: mise run tm-report <change> [-- --check])"
 run = "uv run python openspec/tools/tc.py report"
 
+# OBSOLETE: tm-render and mmdc-setup. The threat-composer MCP server (sys_render)
+# renders threat-model diagrams, no flow step calls these tasks, and tm-render's
+# default path (openspec/changes/<change>/threat-model.tc.json) does not exist.
+# Removal is tracked in https://github.com/cairn-proofs/cairn-proofs/issues/97.
 [tasks.tm-render]
 description = "Render a change's threat-model Mermaid DFD/architecture diagrams to embedded PNGs (usage: mise run tm-render <change>)"
 run = "uv run python openspec/tools/tc_render.py"
@@ -217,6 +222,24 @@ for dir in "$HOME/.claude/skills" "$HOME/.kiro/skills"; do
   echo "installed $dest @ ${ASD_STE100_REF:0:7}"
 done
 '''
+
+[tasks.install-git-hooks]
+description = "Install the git hooks defined in .pre-commit-config.yaml into this clone"
+# Idempotent: `pre-commit install` overwrites its own hook script. Skips outside a
+# git work tree (for example, an exported source tarball) instead of failing
+# `mise install`.
+run = '''
+set -euo pipefail
+if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  echo "not a git work tree; skipping pre-commit install"
+  exit 0
+fi
+pre-commit install
+'''
+
+[tasks.postinstall]
+description = "Setup run by the mise postinstall hook after every `mise install`"
+depends = ["install-asd-ste100", "install-git-hooks"]
 
 [tasks.check]
 description = "Full pre-merge pipeline (Python + CDK + specs)"
