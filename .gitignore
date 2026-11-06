@@ -65,7 +65,7 @@ openspec/changes/**/*.tc.json
 
 # Kiro workflow run artifacts (review verdicts, gate logs)
 /openspec/workflow-runs/
-
+.agents/reviews/
 # Kiro spec task-runner state (local)
 .kiro/specs/**/tasks.meta.json
 

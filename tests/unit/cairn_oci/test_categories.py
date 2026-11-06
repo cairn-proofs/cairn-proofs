@@ -664,14 +664,6 @@ def test_invalid_tag_error_unknown_kind_omits_raw_kind() -> None:
         raise AssertionError("expected InvalidTagError")
 
 
-# -- kind_for_crosscheck reads leading kind from the canonical form ----------
-
-
-def test_kind_for_crosscheck_reads_canonical_form() -> None:
-    tag = f"assessment-results--_ref--{_DIGEST}"
-    assert _LOCATOR.kind_for_crosscheck(image_tag=tag) == "assessment-results"
-
-
 # -- [INGEST-021.09] round-trip over generated valid components (hypothesis) --
 
 _valid_digest = st.from_regex(r"\A[0-9a-f]{12}\Z", fullmatch=True)

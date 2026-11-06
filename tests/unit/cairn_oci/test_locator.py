@@ -213,34 +213,6 @@ def test_invalid_tag_error_carries_offending_tag() -> None:
 
 
 # ---------------------------------------------------------------------------
-# kind_for_crosscheck — reads the leading kind from the canonical tag
-# ---------------------------------------------------------------------------
-
-
-def test_kind_for_crosscheck_reads_tag() -> None:
-    loc = ArtifactLocator()
-    cat = loc.kind_for_crosscheck(image_tag=f"scan-reports--_ref--{_DIGEST}")
-    assert cat == "scan-reports"
-
-
-def test_kind_for_crosscheck_fail_closed_on_bad_tag() -> None:
-    loc = ArtifactLocator()
-    with pytest.raises(InvalidTagError):
-        loc.kind_for_crosscheck(image_tag=f"not-a-category--_ref--{_DIGEST}")
-
-
-def test_kind_for_crosscheck_takes_no_repo_name_argument() -> None:
-    # The kind always comes from the tag; the locator takes no repo_name
-    # parameter (D.14).
-    loc = ArtifactLocator()
-    with pytest.raises(TypeError):
-        loc.kind_for_crosscheck(  # type: ignore[call-arg]
-            repo_name="artifact-cmh-alpha/org/tenant/proj",
-            image_tag=f"scan-reports--_ref--{_DIGEST}",
-        )
-
-
-# ---------------------------------------------------------------------------
 # [INGEST-018.02] — repo_name construction (hypothesis)
 # ---------------------------------------------------------------------------
 

@@ -151,9 +151,9 @@ def normalize_artifact_kind(token: str) -> str:
 
     A canonical token maps to itself; a known alias maps to its canonical value;
     anything else raises :class:`InvalidArtifactKindError`. This is the single
-    fail-closed resolver every read site (the membership gate, ``parse_tag``'s
-    leading-segment check, and ``kind_for_crosscheck``) routes through — never a
-    default. Matching is exact (lowercase); case-folding is not performed.
+    fail-closed resolver every read site (the membership gate and ``parse_tag``'s
+    leading-segment check) routes through — never a default. Matching is exact
+    (lowercase); case-folding is not performed.
     """
     if token in ARTIFACT_KINDS:
         return token
@@ -885,24 +885,6 @@ class ArtifactLocator:
                 form_class=f"reserved-{form.token}",
             )
         return form.parse_handler(tag, parts)
-
-    def kind_for_crosscheck(self, *, image_tag: str) -> str:
-        """Return the artifact-kind leg for the bundle-type cross-check.
-
-        The kind is the leading ``{artifact-kind}`` segment of ``image_tag``,
-        sourced via the fail-closed :meth:`parse_tag` (the single canonical
-        ``_ref`` form carries it). There is exactly one repository layout
-        and the kind always
-        lives in the tag, never in the repository path. Fails closed: a
-        malformed tag raises :class:`InvalidTagError`, which the validation
-        layer turns into a permanent failure.
-
-        Returns the SUPPLIED value verbatim (not canonicalized): this method
-        only fail-closed-validates that the value resolves. Canonicalization for
-        the three-way comparison is the crosscheck's own job, so it
-        can report the producer-supplied spelling on a mismatch.
-        """
-        return self.parse_tag(image_tag).artifact_kind
 
 
 # A single parser shared by :func:`alias_tag_of`. ``parse_tag`` carries no

@@ -2,7 +2,6 @@
   "$schema": "https://json.schemastore.org/kiro-agent.json",
   "name": "tester",
   "description": "Use to write, run, or update tests for Cairn pipeline code (Lambdas, CDK, helpers). Triggers on \"write tests for\", \"test this\", \"stub out tests\", \"add a test for\", \"are there tests covering\", \"run the tests\", \"test coverage for\", or any request to verify behavior with automated tests before merging.",
-  "prompt": "file://../agent-prompts/tester.md",
   "tools": [
     "glob",
     "grep",
@@ -35,9 +34,9 @@
       "deniedPaths": [
         "cdk/lib/**",
         "cdk/bin/**",
-        "lambdas/**/src/**",
-        "libs/**/src/**",
-        "cli/**/src/**"
+        "lambdas/*/cairn_lambda_*/**",
+        "libs/*/cairn_*/**",
+        "cli/cairn_cli/**"
       ]
     },
     "shell": {
@@ -45,13 +44,15 @@
         "uv run pytest.*",
         "mise run cdk-test.*",
         "uv run ruff.*",
-        "openspec .*",
+        "openspec list.*",
+        "openspec status.*",
+        "openspec instructions.*",
+        "openspec validate.*",
         "git diff.*",
         "git log.*",
         "git status.*",
         "git show.*",
         "grep .*",
-        "sed -n .*",
         "cat .*",
         "ls .*",
         "echo .*",
@@ -78,10 +79,14 @@
         ".*mise run check.*",
         ".*mise run semgrep.*",
         "uv run ruff.*--unsafe-fixes.*",
-        "rm -rf .*"
+        "rm -rf .*",
+        ".*>\\s*openspec/.*",
+        ".*>\\s*\\.kiro/.*",
+        ".*tee .*openspec/.*",
+        ".*tee .*\\.kiro/.*"
       ],
       "autoAllowReadonly": true,
-      "denyByDefault": false
+      "denyByDefault": true
     }
   },
   "resources": [
@@ -96,13 +101,15 @@
           "uv run pytest*",
           "mise run cdk-test*",
           "uv run ruff*",
-          "openspec *",
+          "openspec list*",
+          "openspec status*",
+          "openspec instructions*",
+          "openspec validate*",
           "git diff*",
           "git log*",
           "git status*",
           "git show*",
           "grep *",
-          "sed -n *",
           "cat *",
           "ls *",
           "echo *",
@@ -133,7 +140,47 @@
           "*mise run check*",
           "*mise run semgrep*",
           "uv run ruff*--unsafe-fixes*",
-          "rm -rf *"
+          "rm -rf *",
+          "*> openspec/*",
+          "*>openspec/*",
+          "*> .kiro/*",
+          "*>.kiro/*",
+          "*tee *openspec/*",
+          "*tee *.kiro/*"
+        ],
+        "effect": "deny"
+      },
+      {
+        "capability": "shell",
+        "match": [
+          "*"
+        ],
+        "exclude": [
+          "cat *",
+          "echo *",
+          "git --no-pager diff*",
+          "git --no-pager log*",
+          "git --no-pager show*",
+          "git --no-pager status*",
+          "git branch --show-current*",
+          "git check-ignore*",
+          "git diff*",
+          "git log*",
+          "git show*",
+          "git status*",
+          "grep *",
+          "head *",
+          "ls *",
+          "mise run cdk-test*",
+          "openspec instructions*",
+          "openspec list*",
+          "openspec status*",
+          "openspec validate*",
+          "tail *",
+          "uv run pytest*",
+          "uv run ruff*",
+          "wc *",
+          "which *"
         ],
         "effect": "deny"
       },
@@ -162,18 +209,14 @@
         "match": [
           "cdk/lib/**",
           "cdk/bin/**",
-          "lambdas/**/src/**",
-          "libs/**/src/**",
-          "cli/**/src/**"
+          "lambdas/*/cairn_lambda_*/**",
+          "libs/*/cairn_*/**",
+          "cli/cairn_cli/**"
         ],
         "effect": "deny"
       },
       {
         "capability": "fs_read",
-        "effect": "allow"
-      },
-      {
-        "capability": "shell",
         "effect": "allow"
       },
       {
