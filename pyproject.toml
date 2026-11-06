@@ -100,7 +100,10 @@ testpaths = ["tests"]
 # Process-parallel by default via pytest-xdist (per openspec/specs/toolchain/
 # spec.md "Tests Safe Under Parallel Execution"). Workers = available CPU
 # count. Override for interactive debugging: `uv run pytest -n 0 ...`.
-addopts = "-n auto"
+# `slow` tests are excluded by default. Run them on demand with `-m slow`; a
+# later `-m` on the command line replaces this one.
+addopts = "-n auto -m 'not slow'"
 markers = [
   "integration: end-to-end tests that exercise a real deployment; skipped unless CAIRN_INTEGRATION_ENV is set",
+  "slow: expensive adversarial tests (large-input memory or time bounds); excluded by default, run with -m slow",
 ]
