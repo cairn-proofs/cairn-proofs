@@ -71,10 +71,6 @@ cd cdk && npm install && cd ..
 # 4. Python workspace (.venv at repo root, dev tooling + any uv workspace members)
 uv sync
 
-# 5. (Optional, threat-model authors only) Provision the headless browser mmdc 
-#    uses to render threat-model diagrams in the OpenSpec propose flow. One-time, idempotent, ~160MB.
-mise run mmdc-setup
-
 ```
 
 > **ASD-STE100 skill (required, installed automatically):** the repo's agents depend on the ASD-STE100 writing skill. A `postinstall` hook in `mise.toml` runs `mise run install-asd-ste100` after every `mise install`, so no manual step is needed. The task writes **outside the repo**, to your user-level skill dirs (`~/.claude/skills/asd-ste100-skill` and `~/.kiro/skills/asd-ste100-skill`). It affects every project on the machine and replaces any existing copy there. It installs a commit pinned in `mise.toml` (bump `ASD_STE100_REF` deliberately), needs network access to github.com, and skips the fetch when both copies already match the pin. Run it by hand with `mise run install-asd-ste100` if the hook was skipped (`--no-hooks`, `MISE_NO_HOOKS=1`).

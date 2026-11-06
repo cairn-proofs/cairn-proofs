@@ -147,6 +147,10 @@ run = "uv run python openspec/tools/tc.py reconcile"
 description = "Write a change's sanitized threat-model report (usage: mise run tm-report <change> [-- --check])"
 run = "uv run python openspec/tools/tc.py report"
 
+# OBSOLETE: tm-render and mmdc-setup. The threat-composer MCP server (sys_render)
+# renders threat-model diagrams, no flow step calls these tasks, and tm-render's
+# default path (openspec/changes/<change>/threat-model.tc.json) does not exist.
+# Removal is tracked in https://github.com/cairn-proofs/cairn-proofs/issues/97.
 [tasks.tm-render]
 description = "Render a change's threat-model Mermaid DFD/architecture diagrams to embedded PNGs (usage: mise run tm-render <change>)"
 run = "uv run python openspec/tools/tc_render.py"
