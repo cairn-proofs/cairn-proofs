@@ -393,9 +393,9 @@ def test_criterion_d_surviving_alias_literal_resolves_and_passes() -> None:
 
 
 def _oscal_layer_manifest() -> OciManifest:
-    """An OSCAL-bearing manifest (one application/oscal.* layer)."""
+    """An OSCAL-bearing manifest (one application/oscal+json layer)."""
     oscal_layer = Descriptor(
-        mediaType="application/oscal.assessment-results+json",
+        mediaType="application/oscal+json",
         digest="sha256:" + "2" * 64,
         size=10,
         annotations={LAYER_REQUIRED_TITLE: "ar.json"},

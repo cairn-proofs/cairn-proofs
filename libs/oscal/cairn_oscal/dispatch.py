@@ -12,12 +12,12 @@ content read is the seam that grows a version registry; see the
 (bindings live in `oscal_bindings.v1`; 2.0 gets its own version
 subpackage, `oscal_bindings.v2`).
 
-`parse_oscal_layer` enforces a hard size cap on producer-supplied bytes
-before invoking the JSON parser. Evidence-ingestion permits per-layer
-artifacts up to 10 GB, but OSCAL documents in practice are KB to low-MB;
-multi-GB OSCAL is pathological and an unbounded parse risks OOM-killing
-the validate-bundle Lambda. The cap is a defense-in-depth guard at
-this layer in addition to any cap the calling Lambda may enforce.
+`parse_oscal_layer` enforces the per-layer OSCAL size limit (`max_bytes`)
+on producer-supplied bytes before it invokes the JSON parser. Evidence
+ingestion permits artifacts up to 10 GiB, but parse memory grows with the
+document size, and an unbounded parse can stop the validate-bundle Lambda
+with an out-of-memory error. The calling Lambda checks the same limit
+before and during the fetch; this check is defense in depth.
 """
 
 from __future__ import annotations
@@ -31,14 +31,48 @@ from cairn_oscal.errors import OscalExtractionError
 
 _OSCAL_1X_RE = re.compile(r"^1\.\d+(\.\d+)?$")
 
-MAX_OSCAL_LAYER_BYTES: Final[int] = 64 * 1024 * 1024
-"""Per-layer OSCAL parse cap (64 MiB).
+DEFAULT_MAX_OSCAL_LAYER_BYTES: Final[int] = 16 * 1024 * 1024
+"""Default per-layer OSCAL size limit (16 MiB).
 
-OSCAL documents are typically KB to low-MB. The artifact-ingestion limit
-of 10 GB per artifact applies to arbitrary content layers (PDFs, scan
-reports, etc.), not OSCAL JSON. Beyond ~64 MiB an OSCAL layer is
-adversarial: the parse-time memory cost would OOM the Lambda before
-any signal of a hostile producer escapes."""
+This value is the default for a deployment setting. A deployment sets its
+own limit with `cdk --context maxOscalLayerBytes=N`, which reaches the
+validate-bundle Lambda as the `MAX_OSCAL_LAYER_BYTES` environment
+variable. `parse_oscal_layer` takes the limit as its `max_bytes`
+argument and reads no environment variable.
+
+Parse memory measured with `parse_oscal_layer` on macOS: the NIST SP
+800-53 rev5 catalog (10.0 MiB, the largest known OSCAL document) peaked
+at 171 MiB RSS. A synthetic catalog of minimal controls peaked at 479 MiB
+at 8 MiB, 872 MiB at 16 MiB, and 3,030 MiB at 60 MiB. The validate Lambda
+has 1,769 MB, sized in the CDK stack for this peak plus the runtime and the
+ADOT collector. The 16 MiB default gives 60% headroom over the largest known
+document and keeps a dense document of that size below the Lambda memory.
+A deployment that raises the limit must also give the Lambda more memory."""
+
+_MIB: Final[int] = 1024 * 1024
+_UTF8_BOM: Final[bytes] = b"\xef\xbb\xbf"
+
+
+def oscal_layer_too_large_error(
+    layer_digest: str | None, *, limit: int, declared_size: int | None
+) -> OscalExtractionError:
+    """Build the permanent `oscal_layer_too_large` error ([OSCAL-001]).
+
+    The message names the layer digest, the declared size (or, when
+    `declared_size` is `None`, that the bytes are longer than the limit),
+    the limit in bytes and in MiB, and that the limit applies per OSCAL layer.
+    """
+    if declared_size is None:
+        size_text = "has bytes longer than"
+    else:
+        size_text = f"declares {declared_size:,} bytes ({declared_size / _MIB:.1f} MiB), above"
+    return OscalExtractionError(
+        f"OSCAL layer {layer_digest} {size_text} the per-layer OSCAL limit of "
+        f"{limit:,} bytes ({limit / _MIB:.1f} MiB) for this deployment; "
+        "the limit applies per OSCAL layer",
+        error_kind="oscal_layer_too_large",
+        layer_digest=layer_digest,
+    )
 
 
 def is_supported_version(version: str | None) -> bool:
@@ -52,6 +86,7 @@ def parse_oscal_layer(
     blob: bytes,
     *,
     layer_digest: str | None = None,
+    max_bytes: int = DEFAULT_MAX_OSCAL_LAYER_BYTES,
 ) -> tuple[OscalDoc, str]:
     """Parse one OSCAL-typed layer and derive its schema version from content.
 
@@ -66,25 +101,28 @@ def parse_oscal_layer(
         layer_digest: Optional layer Manifest_Digest used for error reporting
             so the resulting `artifact.validation-failed` event can identify
             which layer failed ([OSCAL-005]).
+        max_bytes: The per-layer OSCAL size limit that applies. The caller
+            passes the deployment limit.
 
     Returns:
         A 2-tuple `(doc, version)` of the parsed `OscalDoc` and its validated
         content-derived OSCAL 1.x schema version string.
 
     Raises:
-        OscalExtractionError: On an oversized blob or any SDK parse failure
+        OscalExtractionError: On a blob longer than `max_bytes`
+            (`oscal_layer_too_large`), any SDK parse failure
             (`parse_failure`), a document with no readable embedded version
             (`missing_schema_version`), or an embedded version that is not a
             supported 1.x string (`unsupported_version`). All variants are
             permanent ([OSCAL-005]).
     """
-    if len(blob) > MAX_OSCAL_LAYER_BYTES:
-        raise OscalExtractionError(
-            f"OSCAL layer exceeds the {MAX_OSCAL_LAYER_BYTES}-byte parse cap "
-            f"(received {len(blob)} bytes)",
-            error_kind="parse_failure",
-            layer_digest=layer_digest,
-        )
+    if len(blob) > max_bytes:
+        raise oscal_layer_too_large_error(layer_digest, limit=max_bytes, declared_size=None)
+
+    # RFC 8259 section 8.1 permits a parser to ignore one leading byte-order
+    # mark. Only the parse input changes; the stored bytes keep it.
+    if blob.startswith(_UTF8_BOM):
+        blob = blob[len(_UTF8_BOM) :]
 
     try:
         # bytes-direct path: pydantic v2 model_validate_json accepts bytes,

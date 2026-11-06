@@ -228,6 +228,19 @@ def test_build_exports_the_lock_and_installs_with_the_expected_options(fx: Fixtu
         assert argv[argv.index("--build-constraints") + 1].endswith("build-constraints.txt")
 
 
+def test_workspace_members_build_from_current_source_not_the_uv_cache(fx: Fixture) -> None:
+    # uv reuses a cached wheel of a local package while its pyproject.toml is
+    # unchanged, so a source-only edit would ship the previous build. The member
+    # install must bypass the cache; the hashed third-party install keeps it.
+    result = fx.run()
+    assert result.returncode == 0, result.stderr
+    installs = [c["args"] for c in fx.calls() if c["args"][:2] == ["pip", "install"]]
+    members = [a for a in installs if "--build-constraints" in a]
+    third_party = [a for a in installs if "--require-hashes" in a]
+    assert members and all("--no-cache" in argv for argv in members)
+    assert third_party and all("--no-cache" not in argv for argv in third_party)
+
+
 def test_uv_export_never_receives_no_config(fx: Fixture) -> None:
     # Covers: [TOOLS-022.01]
     assert fx.run().returncode == 0

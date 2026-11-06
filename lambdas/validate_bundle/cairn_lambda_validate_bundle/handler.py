@@ -33,9 +33,13 @@ the trigger:
    ``metadata.last-modified`` is strictly after ``ecrPushedAt`` ([PIPELINE-009]); set
    ``temporalConsistencyWarning`` when drift exceeds the staleness window. There
    is no synthetic ``created`` annotation.
-7. For every ``application/oscal.*`` layer, parse, derive + gate the OSCAL
-   schema version from the layer's own ``metadata.oscal-version``, and extract
-   metadata.
+7. For every ``application/oscal+json`` layer (case-insensitive, parameters
+   ignored), check the size against the per-layer OSCAL limit
+   (``MAX_OSCAL_LAYER_BYTES``) before and during the fetch, parse, derive +
+   gate the OSCAL schema version from the layer's own
+   ``metadata.oscal-version``, and extract metadata. Any other member of the
+   OSCAL media-type family (``cairn_oscal.is_oscal_layer``) is a permanent
+   failure ([OSCAL-002]).
 8. Emit ``artifact.validated`` on success or ``artifact.validation-failed`` on
    permanent failure; permanent failures deliver an in-band rejection record
    directly to the validate DLQ ([PIPELINE-006] — no async-invoke retry) and the handler
@@ -67,6 +71,7 @@ from cairn_oci import (
     CONFIG_BLOB_MEDIA_TYPE,
     LAYER_REQUIRED_TITLE,
     PRODUCER_ATTESTATION_ARTIFACT_TYPE,
+    Descriptor,
     InvalidStatementError,
     OciManifest,
     classify_pipeline_internal,
@@ -78,9 +83,13 @@ from cairn_oci.categories import (
     normalize_artifact_kind,
 )
 from cairn_oscal import (
+    DEFAULT_MAX_OSCAL_LAYER_BYTES,
     OscalExtractionError,
+    OscalLayerMetadata,
     extract_oscal_metadata,
+    is_oscal_layer,
     make_artifact_reference,
+    oscal_layer_too_large_error,
     parse_oscal_layer,
 )
 from cairn_validation import (
@@ -95,6 +104,7 @@ from pydantic import ValidationError
 
 from cairn_lambda_validate_bundle import dlq
 from cairn_lambda_validate_bundle.ecr_client import (
+    BlobSizeLimitExceeded,
     EcrFetchError,
     fetch_blob,
     fetch_manifest,
@@ -193,7 +203,39 @@ if STAGE:
 if REGION_CODE:
     os.environ.setdefault("CAIRN_REGION_CODE", REGION_CODE)
 
-_OSCAL_MEDIA_PREFIX = "application/oscal."
+
+def _read_max_oscal_layer_bytes() -> int:
+    """Read the per-layer OSCAL size limit from ``MAX_OSCAL_LAYER_BYTES``.
+
+    The CDK app sets the variable only when the deployment sets the
+    ``maxOscalLayerBytes`` context key. When it is absent, the limit is
+    ``cairn_oscal.DEFAULT_MAX_OSCAL_LAYER_BYTES``. A value that is present
+    but is not a whole number of 1 or more raises at import, so every
+    invocation fails loudly and the Lambda never runs on a silent fallback.
+    """
+    raw = os.environ.get("MAX_OSCAL_LAYER_BYTES")
+    if raw is None:
+        return DEFAULT_MAX_OSCAL_LAYER_BYTES
+    text = raw.strip()
+    if not (text.isascii() and text.isdigit()) or int(text) < 1:
+        raise ValueError(
+            f"MAX_OSCAL_LAYER_BYTES must be a whole number of 1 or more; got {raw[:64]!a}"
+        )
+    return int(text)
+
+
+MAX_OSCAL_LAYER_BYTES: Final[int] = _read_max_oscal_layer_bytes()
+
+# The failure-event ``field`` for each OSCAL error kind. ``{digest}`` is the
+# layer digest. A kind that is not in the table falls back to the layer itself.
+_OSCAL_FAILURE_FIELD: Final[dict[str, str]] = {
+    "unsupported_media_type": "layer[{digest}].mediaType",
+    "oscal_layer_too_large": "layer[{digest}].size",
+    "parse_failure": "layer[{digest}]",
+    "unsupported_doc_type": "layer[{digest}]",
+    "missing_schema_version": "layer[{digest}].metadata.oscal-version",
+    "unsupported_version": "layer[{digest}].metadata.oscal-version",
+}
 
 # Metadata_Index table that holds the durable digest-keyed record. Validate
 # reads it to short-circuit a re-seen digest (the re-entrant PutImage the
@@ -826,6 +868,44 @@ def _record_skip(
     return _SKIPPED
 
 
+def _oscal_failure_field(err: OscalExtractionError) -> str:
+    """The failure-event ``field`` for an OSCAL error, keyed by ``error_kind``."""
+    digest = err.layer_digest or "unknown"
+    template = _OSCAL_FAILURE_FIELD.get(err.error_kind, "layer[{digest}]")
+    return template.format(digest=digest)
+
+
+def _extract_oscal_layer(
+    layer: Descriptor, *, push: EcrPushEvent
+) -> tuple[str, OscalLayerMetadata]:
+    """Size-check, fetch, parse, and extract one OSCAL layer ([OSCAL-001]).
+
+    Returns only the content-derived OSCAL version and the extracted metadata.
+    The layer bytes and the parsed document are locals of this function, so
+    they are released before the caller starts the next layer. The per-layer
+    limit is therefore also a per-invocation bound on OSCAL parse memory.
+
+    Raises ``OscalExtractionError(error_kind="oscal_layer_too_large")`` when
+    the descriptor declares a size above ``MAX_OSCAL_LAYER_BYTES`` (no fetch),
+    or when the fetched bytes are longer than the limit. Raises the other
+    ``OscalExtractionError`` kinds from the parse and the extraction.
+    """
+    limit = MAX_OSCAL_LAYER_BYTES
+    if layer.size > limit:
+        raise oscal_layer_too_large_error(layer.digest, limit=limit, declared_size=layer.size)
+    try:
+        blob = fetch_blob(
+            registry_id=push.registry_id,
+            repository_name=push.repository_name,
+            blob_digest=layer.digest,
+            max_bytes=limit,
+        )
+    except BlobSizeLimitExceeded as e:
+        raise oscal_layer_too_large_error(layer.digest, limit=limit, declared_size=None) from e
+    doc, version = parse_oscal_layer(blob, layer_digest=layer.digest, max_bytes=limit)
+    return version, extract_oscal_metadata(doc, layer_digest=layer.digest)
+
+
 def _process_layers_and_build_reference(
     *,
     manifest: OciManifest,
@@ -889,16 +969,12 @@ def _process_layers_and_build_reference(
                 )
             entry["title"] = title
 
-        if layer.media_type.startswith(_OSCAL_MEDIA_PREFIX):
+        # Classification runs before any fetch, so a layer with a rejected OSCAL
+        # family media type is never fetched ([OSCAL-002]).
+        if is_oscal_layer(layer.media_type, layer_digest=layer.digest):
             is_first_oscal_layer = not has_oscal
             has_oscal = True
-            blob = fetch_blob(
-                registry_id=push.registry_id,
-                repository_name=push.repository_name,
-                blob_digest=layer.digest,
-            )
-            doc, version = parse_oscal_layer(blob, layer_digest=layer.digest)
-            meta = extract_oscal_metadata(doc)
+            version, meta = _extract_oscal_layer(layer, push=push)
             # The OSCAL root identity comes from the FIRST OSCAL layer; it is
             # recorded as a distinct document identity on the evidence reference.
             if is_first_oscal_layer:
@@ -1378,11 +1454,7 @@ def _handle(event: dict[str, Any]) -> dict[str, Any]:
             failed_criteria=[
                 {
                     "criterion": "oscal",
-                    "field": (
-                        f"layer[{e.layer_digest}].metadata.oscal-version"
-                        if e.layer_digest
-                        else "oscal layer metadata.oscal-version"
-                    ),
+                    "field": _oscal_failure_field(e),
                     "message": str(e),
                 }
             ],

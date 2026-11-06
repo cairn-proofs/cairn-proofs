@@ -839,15 +839,12 @@ def test_row_stores_unified_layers_for_mixed_bundle(reload_handler, lambda_conte
     # The legacy OSCAL-only attribute is never written.
     assert "oscalLayers" not in item
     by_media = {layer["mediaType"]: layer for layer in item["layers"]}
-    assert "oscal" in by_media["application/oscal.assessment-results+json"]
+    assert "oscal" in by_media["application/oscal+json"]
     assert "oscal" not in by_media["text/plain"]
     # The record carries no record-level oscalSchemaVersion ([META-008]); the
     # schema version stays in the OSCAL layer's enrichment sub-object.
     assert "oscalSchemaVersion" not in item
-    assert (
-        by_media["application/oscal.assessment-results+json"]["oscal"]["oscalSchemaVersion"]
-        == "1.1.2"
-    )
+    assert by_media["application/oscal+json"]["oscal"]["oscalSchemaVersion"] == "1.1.2"
 
 
 def test_non_oscal_only_bundle_row_stores_layers_and_no_oscal_version(

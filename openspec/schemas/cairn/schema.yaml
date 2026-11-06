@@ -230,7 +230,7 @@ artifacts:
           the issue. Create it in the private repository with
           `gh issue create --repo cairn-proofs/cp-threat-models-private`, and
           describe the mitigation and its threats there. Then call
-          `tm_add_tags` to add `deferred:cp-threat-models-private#<n>` to the
+          `tm_add_tags` to add `deferred:tm-private#<n>` to the
           mitigation. Never put this content in a public issue.
         - Accept the risk: call `tm_set_status` to set the mitigation to
           `mitigationResolvedWillNotAction`. Then call `tm_add_assumptions`

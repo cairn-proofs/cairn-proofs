@@ -59,8 +59,7 @@ from dataclasses import dataclass
 from typing import Final
 
 # The fifteen canonical Artifact_Kind values. Group A (8) are the
-# verbatim OSCAL schema root names — kept un-singularized so they double as the
-# OSCAL document-root identifier for the opportunistic OSCAL cross-check. Group B
+# verbatim OSCAL schema root names, kept un-singularized. Group B
 # (7) are our own singular non-OSCAL document-role labels.
 ARTIFACT_KINDS: Final[frozenset[str]] = frozenset(
     {

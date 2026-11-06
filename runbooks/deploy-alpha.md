@@ -323,6 +323,12 @@ The stack props `retentionPeriodDays` (default 2,555 = 7 years, bounds 1–36,13
 
 **Lowering the retention period on a production stack requires a recorded acknowledgement before the deploy.** A shorter period shortens Retain_Until (and, under `WORM_Enabled=true`, the Object Lock date) of every bundle archived afterwards, and `cairn prune` can then delete those bundles sooner. Bundles already archived keep the Retain_Until written in their receipts. Get written sign-off from the deployment's retention owner naming the old and new values and the reason, attach it to the change record, then deploy. A non-production stack may use short periods (for example `retentionPeriodDays=1`) to exercise expiry.
 
+## OSCAL layer size limit
+
+The optional stack prop `maxOscalLayerBytes` sets the per-layer OSCAL size limit in bytes ([OSCAL-001]). Set it with `cdk --context maxOscalLayerBytes=N` (pass it through `deploy.sh`). The synth checks that `N` is a whole number from 1 to 10,737,418,240 (10 GiB) and fails otherwise. When it is set, the stack sets the validate-bundle environment variable `MAX_OSCAL_LAYER_BYTES`. When it is not set, the variable is absent and validate-bundle uses the 16 MiB default (`cairn_oscal.DEFAULT_MAX_OSCAL_LAYER_BYTES`). A layer over the limit is a permanent `oscal_layer_too_large` failure (see `runbooks/troubleshooting.md`).
+
+The validate Lambda has 1,769 MB of memory. A dense 16 MiB OSCAL layer peaked at about 870 MiB of parse memory, and memory grows with the limit (3,030 MiB for a dense 60 MiB document). A larger limit can need more validate Lambda memory. Change the `memorySize` of validate-bundle in `cdk/lib/constructs/lambda-functions.ts` in the same deploy, and confirm `Max Memory Used` on the Lambda REPORT line with a limit-sized layer.
+
 ## ECR image quota
 
 Nothing expires images automatically ([RETAIN-006]), so a repository's image count only grows until an operator prunes. ECR's "Images per repository" quota (service-quotas code `L-03A36CE1`, default 100,000 in `us-east-2`) caps it; a push past the quota fails. Check the current value and the repository's image count:

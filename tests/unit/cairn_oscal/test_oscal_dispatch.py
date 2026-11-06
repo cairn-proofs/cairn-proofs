@@ -3,7 +3,8 @@
 Covers:
 - `is_supported_version` — 1.x acceptance & all rejection branches
 - `parse_oscal_layer` — happy path (version read from content), the
-  size cap, `parse_failure` for invalid UTF-8 / malformed JSON / non-OSCAL
+  per-layer size limit (`oscal_layer_too_large`), one leading byte-order
+  mark, `parse_failure` for invalid UTF-8 / malformed JSON / non-OSCAL
   JSON / an undeclared field (strict models) / a key spelled with a Python
   field name instead of its OSCAL name, `unsupported_version`
   for a parseable non-1.x document,
@@ -20,8 +21,9 @@ import json
 
 import pytest
 from cairn_oscal.dispatch import (
-    MAX_OSCAL_LAYER_BYTES,
+    DEFAULT_MAX_OSCAL_LAYER_BYTES,
     is_supported_version,
+    oscal_layer_too_large_error,
     parse_oscal_layer,
 )
 from cairn_oscal.errors import OscalExtractionError
@@ -299,47 +301,123 @@ def test_parse_oscal_layer_python_field_name_key_raises_parse_failure(
 
 
 # ---------------------------------------------------------------------------
-# parse_oscal_layer — oversized-blob guard (MAX_OSCAL_LAYER_BYTES cap)
+# parse_oscal_layer — per-layer OSCAL size limit (max_bytes)
 # ---------------------------------------------------------------------------
 
+_SMALL_LIMIT = 1024
 
-def test_parse_oscal_layer_oversized_blob_raises_parse_failure() -> None:
-    """Blob exceeding `MAX_OSCAL_LAYER_BYTES` → parse_failure BEFORE the
-    decode/parse runs. The error message names both the cap and the
-    received length so operators can size-match without spelunking; the
-    `layer_digest` propagates onto the exception so the resulting
-    `artifact.validation-failed` event identifies the layer ([OSCAL-005])."""
-    oversized = b"x" * (MAX_OSCAL_LAYER_BYTES + 1)
+
+def test_default_max_oscal_layer_bytes_is_16_mib() -> None:
+    assert DEFAULT_MAX_OSCAL_LAYER_BYTES == 16 * 1024 * 1024
+
+
+def test_parse_oscal_layer_one_byte_over_limit_is_too_large(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """[OSCAL-001.09]: a blob one byte over `max_bytes` gives
+    `oscal_layer_too_large` before the parse runs. The message names the
+    layer digest, that the bytes are longer than the limit, the limit in
+    bytes and in MiB, and that the limit applies per OSCAL layer."""
+
+    def _must_not_parse(data: bytes) -> OscalDoc:
+        raise AssertionError("parser reached for an oversized blob")
+
+    monkeypatch.setattr(OscalDoc, "from_json", staticmethod(_must_not_parse))
+    oversized = b"x" * (DEFAULT_MAX_OSCAL_LAYER_BYTES + 1)
     with pytest.raises(OscalExtractionError) as exc_info:
         parse_oscal_layer(oversized, layer_digest="sha256:huge")
-    assert exc_info.value.error_kind == "parse_failure"
-    assert exc_info.value.layer_digest == "sha256:huge"
-    msg = str(exc_info.value)
-    # Message names both the cap and the received length.
-    assert str(MAX_OSCAL_LAYER_BYTES) in msg
-    assert str(MAX_OSCAL_LAYER_BYTES + 1) in msg
+    err = exc_info.value
+    assert err.error_kind == "oscal_layer_too_large"
+    assert err.layer_digest == "sha256:huge"
+    msg = str(err)
+    assert "sha256:huge" in msg
+    assert "bytes longer than" in msg
+    assert "16,777,216 bytes (16.0 MiB)" in msg
+    assert "per OSCAL layer" in msg
 
 
-def test_parse_oscal_layer_at_exact_cap_reaches_parser() -> None:
-    """Boundary: a blob EXACTLY `MAX_OSCAL_LAYER_BYTES` long passes the
-    size guard and proceeds to the decode/parse stage. Garbage content
-    therefore yields `parse_failure` from the parser, NOT from the size
-    guard — distinguished by the message NOT mentioning the cap."""
-    at_cap = b"x" * MAX_OSCAL_LAYER_BYTES
+def test_parse_oscal_layer_at_exact_limit_reaches_parser() -> None:
+    """[OSCAL-001.10]: a blob exactly `max_bytes` long passes the size check,
+    so garbage content gives `parse_failure` from the parser."""
+    at_limit = b"x" * DEFAULT_MAX_OSCAL_LAYER_BYTES
     with pytest.raises(OscalExtractionError) as exc_info:
-        parse_oscal_layer(at_cap, layer_digest="sha256:atcap")
+        parse_oscal_layer(at_limit, layer_digest="sha256:atlimit")
     assert exc_info.value.error_kind == "parse_failure"
-    msg = str(exc_info.value)
-    # The size-guard message names the cap; the JSON parser failure does not.
-    assert str(MAX_OSCAL_LAYER_BYTES) not in msg
+    assert isinstance(exc_info.value.__cause__, OscalParseError)
 
 
-def test_parse_oscal_layer_oversized_blob_trips_cap_before_parse() -> None:
-    """Order-of-operations guard: the size cap fires before the parse, so an
-    oversized blob raises `parse_failure` from the cap (not from the parser
-    or a version gate). The cap-mention in the message is the discriminator."""
-    oversized = b"x" * (MAX_OSCAL_LAYER_BYTES + 1)
+def test_parse_oscal_layer_non_default_limit_applies() -> None:
+    """[OSCAL-001.11]: a non-default `max_bytes` is the limit that applies,
+    and the message states it."""
     with pytest.raises(OscalExtractionError) as exc_info:
-        parse_oscal_layer(oversized, layer_digest="sha256:huge")
+        parse_oscal_layer(
+            b"x" * (_SMALL_LIMIT + 1), layer_digest="sha256:s", max_bytes=_SMALL_LIMIT
+        )
+    assert exc_info.value.error_kind == "oscal_layer_too_large"
+    assert "1,024 bytes (0.0 MiB)" in str(exc_info.value)
+
+    with pytest.raises(OscalExtractionError) as exc_info:
+        parse_oscal_layer(b"x" * _SMALL_LIMIT, layer_digest="sha256:s", max_bytes=_SMALL_LIMIT)
     assert exc_info.value.error_kind == "parse_failure"
-    assert str(MAX_OSCAL_LAYER_BYTES) in str(exc_info.value)
+
+
+def test_parse_oscal_layer_raised_limit_accepts_blob_over_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """[OSCAL-001.11]: a limit above the default lets a larger blob reach the parser."""
+    seen: list[int] = []
+
+    def _fake_from_json(data: bytes) -> OscalDoc:
+        seen.append(len(data))
+        raise OscalParseError("stub")
+
+    monkeypatch.setattr(OscalDoc, "from_json", staticmethod(_fake_from_json))
+    big = b"x" * (DEFAULT_MAX_OSCAL_LAYER_BYTES + 1)
+    with pytest.raises(OscalExtractionError) as exc_info:
+        parse_oscal_layer(big, max_bytes=DEFAULT_MAX_OSCAL_LAYER_BYTES * 2)
+    assert exc_info.value.error_kind == "parse_failure"
+    assert seen == [len(big)]
+
+
+def test_oscal_layer_too_large_error_declared_size() -> None:
+    """The declared-size form names the declared size in bytes and in MiB."""
+    err = oscal_layer_too_large_error(
+        "sha256:d", limit=DEFAULT_MAX_OSCAL_LAYER_BYTES, declared_size=20 * 1024 * 1024
+    )
+    assert err.error_kind == "oscal_layer_too_large"
+    assert err.layer_digest == "sha256:d"
+    assert str(err) == (
+        "OSCAL layer sha256:d declares 20,971,520 bytes (20.0 MiB), above the "
+        "per-layer OSCAL limit of 16,777,216 bytes (16.0 MiB) for this deployment; "
+        "the limit applies per OSCAL layer"
+    )
+
+
+# ---------------------------------------------------------------------------
+# parse_oscal_layer — leading UTF-8 byte-order mark ([OSCAL-001.12])
+# ---------------------------------------------------------------------------
+
+_BOM = b"\xef\xbb\xbf"
+
+
+def test_parse_oscal_layer_one_leading_bom_parses() -> None:
+    blob = _BOM + minimal_catalog_json().encode("utf-8")
+    doc, version = parse_oscal_layer(blob)
+    assert isinstance(doc, OscalDoc)
+    assert version == "1.2.1"
+
+
+def test_parse_oscal_layer_two_leading_boms_is_parse_failure() -> None:
+    blob = _BOM + _BOM + minimal_catalog_json().encode("utf-8")
+    with pytest.raises(OscalExtractionError) as exc_info:
+        parse_oscal_layer(blob, layer_digest="sha256:bom2")
+    assert exc_info.value.error_kind == "parse_failure"
+    assert exc_info.value.layer_digest == "sha256:bom2"
+
+
+def test_parse_oscal_layer_bom_counts_toward_limit() -> None:
+    """The size check runs on the stored bytes, byte-order mark included."""
+    body = minimal_catalog_json().encode("utf-8")
+    with pytest.raises(OscalExtractionError) as exc_info:
+        parse_oscal_layer(_BOM + body, max_bytes=len(body))
+    assert exc_info.value.error_kind == "oscal_layer_too_large"

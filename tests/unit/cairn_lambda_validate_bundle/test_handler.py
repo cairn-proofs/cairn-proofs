@@ -119,7 +119,7 @@ def test_happy_path_emits_validated_with_full_payload(reload_handler, lambda_con
     # Universal OCI descriptor fields on every layer.
     assert layer_meta["digest"] == bundle.layer_digest
     assert layer_meta["size"] == len(bundle.layer_bytes)
-    assert layer_meta["mediaType"] == "application/oscal.catalog+json"
+    assert layer_meta["mediaType"] == "application/oscal+json"
     assert layer_meta["title"] == "catalog.json"
     # OSCAL enrichment carried in-line as a per-entry sub-object, not a separate list.
     oscal = layer_meta["oscal"]
@@ -1286,7 +1286,7 @@ def test_mixed_bundle_projects_every_layer_descriptor(reload_handler, lambda_con
     bundle, layer_blobs = _multi_layer_bundle(
         layers=[
             {
-                "media_type": "application/oscal.catalog+json",
+                "media_type": "application/oscal+json",
                 "blob": oscal_blob,
                 "title": "cat.json",
             },
@@ -1306,7 +1306,7 @@ def test_mixed_bundle_projects_every_layer_descriptor(reload_handler, lambda_con
     by_media = {layer["mediaType"]: layer for layer in projected}
     # Every layer carries the universal OCI descriptor fields.
     for media, blob, title in (
-        ("application/oscal.catalog+json", oscal_blob, "cat.json"),
+        ("application/oscal+json", oscal_blob, "cat.json"),
         ("text/plain", log_blob, "run.log"),
         ("image/png", png_blob, "screen.png"),
     ):
@@ -1315,7 +1315,7 @@ def test_mixed_bundle_projects_every_layer_descriptor(reload_handler, lambda_con
         assert entry["size"] == len(blob)
         assert entry["title"] == title
     # No layer omitted on account of media type.
-    assert set(by_media) == {"application/oscal.catalog+json", "text/plain", "image/png"}
+    assert set(by_media) == {"application/oscal+json", "text/plain", "image/png"}
 
 
 def test_mixed_bundle_oscal_layer_carries_inline_enrichment(reload_handler, lambda_context) -> None:
@@ -1327,7 +1327,7 @@ def test_mixed_bundle_oscal_layer_carries_inline_enrichment(reload_handler, lamb
     bundle, layer_blobs = _multi_layer_bundle(
         layers=[
             {"media_type": "text/plain", "blob": log_blob, "title": "run.log"},
-            {"media_type": "application/oscal.catalog+json", "blob": oscal_blob, "title": "c.json"},
+            {"media_type": "application/oscal+json", "blob": oscal_blob, "title": "c.json"},
         ]
     )
     _attestation, event = _submit_multi_layer(handler, bundle, layer_blobs)
@@ -1340,7 +1340,7 @@ def test_mixed_bundle_oscal_layer_carries_inline_enrichment(reload_handler, lamb
     # Non-OSCAL layer: no enrichment.
     assert "oscal" not in by_media["text/plain"]
     # OSCAL layer: enrichment inlined, in the same list.
-    oscal = by_media["application/oscal.catalog+json"]["oscal"]
+    oscal = by_media["application/oscal+json"]["oscal"]
     assert oscal["oscalSchemaVersion"] == OSCAL_VERSION
     assert oscal["metadata"]["doc_type"] == "catalog"
     assert oscal["metadata"]["doc_uuid"] == CATALOG_UUID
@@ -1534,7 +1534,7 @@ def test_layers_preserve_manifest_layer_order(reload_handler, lambda_context) ->
         layers=[
             {"media_type": "text/plain", "blob": b"alpha layer", "title": "alpha.txt"},
             {
-                "media_type": "application/oscal.catalog+json",
+                "media_type": "application/oscal+json",
                 "blob": catalog_blob_bytes(),
                 "title": "beta.json",
             },
@@ -1550,7 +1550,7 @@ def test_layers_preserve_manifest_layer_order(reload_handler, lambda_context) ->
     assert [entry["title"] for entry in projected] == ["alpha.txt", "beta.json", "gamma.png"]
     assert [entry["mediaType"] for entry in projected] == [
         "text/plain",
-        "application/oscal.catalog+json",
+        "application/oscal+json",
         "image/png",
     ]
 
@@ -1558,10 +1558,10 @@ def test_layers_preserve_manifest_layer_order(reload_handler, lambda_context) ->
 def test_oscal_lookalike_media_type_is_not_enriched_and_not_fetched(
     reload_handler, lambda_context
 ) -> None:
-    """A layer whose mediaType merely LOOKS OSCAL-ish but lacks the exact
-    ``application/oscal.`` prefix (note: hyphen, not the dot delimiter) is treated
+    """A layer whose mediaType merely LOOKS OSCAL-ish but is outside the OSCAL
+    media-type family (note: hyphen after ``oscal``, not a dot or plus) is treated
     as a plain content layer — NO ``oscal`` sub-object and NO blob fetch (the OSCAL
-    blob fetch is the only per-layer fetch). Pins the prefix discrimination so a
+    blob fetch is the only per-layer fetch). Pins the family discrimination so a
     near-miss media type can't trigger an OSCAL parse on arbitrary bytes."""
     handler = reload_handler
     lookalike_blob = b"this is NOT valid oscal json {{{"
@@ -1604,8 +1604,8 @@ def test_second_oscal_layer_future_dated_is_rejected(reload_handler, lambda_cont
     )
     bundle, layer_blobs = _multi_layer_bundle(
         layers=[
-            {"media_type": "application/oscal.catalog+json", "blob": in_window, "title": "a.json"},
-            {"media_type": "application/oscal.catalog+json", "blob": future, "title": "b.json"},
+            {"media_type": "application/oscal+json", "blob": in_window, "title": "a.json"},
+            {"media_type": "application/oscal+json", "blob": future, "title": "b.json"},
         ]
     )
     _attestation, event = _submit_multi_layer(handler, bundle, layer_blobs)
@@ -1635,3 +1635,634 @@ def test_temporal_check_layers_unit_scans_all_oscal_layers() -> None:
     )
     assert len(failures) == 1
     assert "sha256:second" in failures[0]["field"]
+
+
+# ===========================================================================
+# OSCAL media type ([OSCAL-002]) and per-layer size limit ([OSCAL-001])
+# ===========================================================================
+
+_MAPPING_UUID = "3d1f0a5e-6b7c-4d8e-9f01-23456789abcd"
+
+
+def _mapping_collection_blob() -> bytes:
+    """A minimal valid OSCAL 1.x mapping-collection document."""
+    return json.dumps(
+        {
+            "mapping-collection": {
+                "uuid": _MAPPING_UUID,
+                "metadata": {
+                    "title": "Test Mapping",
+                    "last-modified": LAST_MODIFIED,
+                    "version": "1.0",
+                    "oscal-version": OSCAL_VERSION,
+                },
+                "provenance": {
+                    "method": "human",
+                    "matching-rationale": "semantic",
+                    "status": "complete",
+                    "mapping-description": "test mapping",
+                },
+                "mappings": [
+                    {
+                        "uuid": "4e2f1b6f-7c8d-4e9f-8a12-3456789abcde",
+                        "source-resource": {"type": "catalog", "href": "#src"},
+                        "target-resource": {"type": "catalog", "href": "#tgt"},
+                        "maps": [
+                            {
+                                "uuid": "5f3a2c7a-8d9e-4fa0-9b23-456789abcdef",
+                                "relationship": "equivalent-to",
+                                "sources": [{"type": "control", "id-ref": "ac-1"}],
+                                "targets": [{"type": "control", "id-ref": "ac-1"}],
+                            }
+                        ],
+                    }
+                ],
+            }
+        }
+    ).encode("utf-8")
+
+
+def _bundle_with_declared_size(blob: bytes, declared_size: int) -> BundleFixture:
+    """A single-layer ``application/oscal+json`` bundle whose descriptor declares
+    ``declared_size`` instead of ``len(blob)``. The manifest digest is recomputed."""
+    from cairn_oci import compute_sha256_digest
+
+    bundle = build_bundle(layer_bytes=blob)
+    manifest = json.loads(json.dumps(bundle.manifest_dict))
+    manifest["layers"][0]["size"] = declared_size
+    raw = json.dumps(manifest, separators=(",", ":"))
+    return dataclasses.replace(
+        bundle,
+        manifest_dict=manifest,
+        manifest_raw=raw,
+        manifest_digest=compute_sha256_digest(raw.encode("utf-8")),
+    )
+
+
+def _fetched_digests(handler: Any) -> list[str]:
+    return [d for (_r, _repo, d) in handler._test_fake_ecr.blob_fetch_log]
+
+
+def _single_oscal_failure(handler: Any) -> dict[str, Any]:
+    assert handler._test_recorder.detail_types() == ["artifact.validation-failed"]
+    failed = handler._test_recorder.details("artifact.validation-failed")
+    assert len(failed) == 1
+    return failed[0]
+
+
+def test_oscal_json_mapping_collection_layer_is_parsed(reload_handler, lambda_context) -> None:
+    """[OSCAL-001.07], [OSCAL-002.01]: an ``application/oscal+json`` layer goes
+    through the SDK, and the model comes from the document root key."""
+    handler = reload_handler
+    bundle = build_bundle(layer_bytes=_mapping_collection_blob(), layer_title="map.json")
+    _attestation, event = submit(handler, bundle=bundle)
+
+    payload = handler.lambda_handler(event, lambda_context)
+
+    assert handler._test_recorder.detail_types() == ["artifact.validated"]
+    entry = payload["layers"][0]
+    assert entry["mediaType"] == "application/oscal+json"
+    assert entry["oscal"]["oscalSchemaVersion"] == OSCAL_VERSION
+    assert entry["oscal"]["metadata"]["doc_type"] == "mapping-collection"
+    assert handler._test_fake_ecr.blob_fetch_max_bytes[-1] == handler.MAX_OSCAL_LAYER_BYTES
+
+
+@pytest.mark.parametrize(
+    "media_type",
+    ["Application/OSCAL+JSON; charset=utf-8", "APPLICATION/OSCAL+JSON"],
+)
+def test_oscal_json_match_ignores_case_and_parameters(
+    reload_handler, lambda_context, media_type: str
+) -> None:
+    """[OSCAL-002.05]: the layer is OSCAL, and the entry keeps the media type verbatim."""
+    handler = reload_handler
+    bundle = build_bundle(layer_media_type=media_type)
+    _attestation, event = submit(handler, bundle=bundle)
+
+    payload = handler.lambda_handler(event, lambda_context)
+
+    entry = payload["layers"][0]
+    assert entry["mediaType"] == media_type
+    assert entry["oscal"]["metadata"]["doc_type"] == "catalog"
+
+
+@pytest.mark.parametrize(
+    "media_type",
+    [
+        "application/oscal.catalog+json",
+        "APPLICATION/OSCAL.CATALOG+JSON",
+        "application/oscal+xml",
+        "application/oscal+yaml",
+    ],
+)
+def test_other_oscal_family_media_type_is_rejected_without_fetch(
+    reload_handler, lambda_context, media_type: str
+) -> None:
+    """[OSCAL-002.03], [OSCAL-002.04]: a permanent failure that names the layer
+    and ``application/oscal+json``, with no blob fetch and no validated event."""
+    handler = reload_handler
+    bundle = build_bundle(layer_media_type=media_type)
+    _attestation, event = submit(handler, bundle=bundle)
+
+    assert handler.lambda_handler(event, lambda_context) is handler._REJECTED
+
+    failed = _single_oscal_failure(handler)
+    assert failed["errorKind"] == "unsupported_media_type"
+    assert failed["layerDigest"] == bundle.layer_digest
+    criterion = failed["failedCriteria"][0]
+    assert criterion["criterion"] == "oscal"
+    assert criterion["field"] == f"layer[{bundle.layer_digest}].mediaType"
+    assert "application/oscal+json" in criterion["message"]
+    assert bundle.layer_digest in criterion["message"]
+    assert bundle.layer_digest not in _fetched_digests(handler)
+    assert handler._test_fake_sqs.bodies()[0]["errorKind"] == "unsupported_media_type"
+
+
+def test_oscal_parse_failure_field_names_the_layer(reload_handler, lambda_context) -> None:
+    """Decision 4 field table: ``parse_failure`` gives ``layer[<digest>]``."""
+    handler = reload_handler
+    bundle = build_bundle(layer_bytes=b"{this-is-not-valid-oscal-json")
+    _attestation, event = submit(handler, bundle=bundle)
+
+    assert handler.lambda_handler(event, lambda_context) is handler._REJECTED
+
+    failed = _single_oscal_failure(handler)
+    assert failed["errorKind"] == "parse_failure"
+    assert failed["failedCriteria"][0]["field"] == f"layer[{bundle.layer_digest}]"
+
+
+def test_unsupported_version_field_names_oscal_version(reload_handler, lambda_context) -> None:
+    """Decision 4 field table: version errors keep ``.metadata.oscal-version``."""
+    handler = reload_handler
+    bundle = build_bundle(layer_bytes=catalog_blob_bytes(oscal_version="2.0.0"))
+    _attestation, event = submit(handler, bundle=bundle)
+
+    assert handler.lambda_handler(event, lambda_context) is handler._REJECTED
+
+    failed = _single_oscal_failure(handler)
+    assert failed["errorKind"] == "unsupported_version"
+    assert (
+        failed["failedCriteria"][0]["field"]
+        == f"layer[{bundle.layer_digest}].metadata.oscal-version"
+    )
+
+
+def test_oscal_layer_declared_over_limit_is_rejected_without_fetch(
+    reload_handler, lambda_context
+) -> None:
+    """[OSCAL-001.08]: the descriptor declares one byte over the default limit.
+    The layer is never fetched, and the message states the declared size and
+    the limit in bytes and in MiB."""
+    handler = reload_handler
+    limit = handler.MAX_OSCAL_LAYER_BYTES
+    assert limit == 16 * 1024 * 1024
+    bundle = _bundle_with_declared_size(catalog_blob_bytes(), limit + 1)
+    _attestation, event = submit(handler, bundle=bundle)
+
+    assert handler.lambda_handler(event, lambda_context) is handler._REJECTED
+
+    failed = _single_oscal_failure(handler)
+    assert failed["errorKind"] == "oscal_layer_too_large"
+    assert failed["layerDigest"] == bundle.layer_digest
+    criterion = failed["failedCriteria"][0]
+    assert criterion["field"] == f"layer[{bundle.layer_digest}].size"
+    message = criterion["message"]
+    assert bundle.layer_digest in message
+    assert "declares 16,777,217 bytes (16.0 MiB)" in message
+    assert "16,777,216 bytes (16.0 MiB)" in message
+    assert "per OSCAL layer" in message
+    assert bundle.layer_digest not in _fetched_digests(handler)
+
+
+def test_oscal_layer_bytes_longer_than_limit_is_rejected(
+    reload_handler, lambda_context, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """[OSCAL-001.09]: the descriptor understates the size. The bounded fetch
+    stops at the limit and the failure states that the bytes are longer."""
+    handler = reload_handler
+    blob = catalog_blob_bytes()
+    limit = len(blob) - 1
+    monkeypatch.setattr(handler, "MAX_OSCAL_LAYER_BYTES", limit)
+    bundle = _bundle_with_declared_size(blob, limit)
+    _attestation, event = submit(handler, bundle=bundle)
+
+    assert handler.lambda_handler(event, lambda_context) is handler._REJECTED
+
+    failed = _single_oscal_failure(handler)
+    assert failed["errorKind"] == "oscal_layer_too_large"
+    criterion = failed["failedCriteria"][0]
+    assert criterion["field"] == f"layer[{bundle.layer_digest}].size"
+    assert "bytes longer than" in criterion["message"]
+    assert f"{limit:,} bytes" in criterion["message"]
+    assert bundle.layer_digest in _fetched_digests(handler)
+    assert handler._test_fake_ecr.blob_fetch_max_bytes[-1] == limit
+
+
+def test_oscal_layer_at_exact_limit_is_parsed(
+    reload_handler, lambda_context, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """[OSCAL-001.10]: a layer whose size equals the limit is parsed."""
+    handler = reload_handler
+    blob = catalog_blob_bytes()
+    monkeypatch.setattr(handler, "MAX_OSCAL_LAYER_BYTES", len(blob))
+    bundle = build_bundle(layer_bytes=blob)
+    _attestation, event = submit(handler, bundle=bundle)
+
+    payload = handler.lambda_handler(event, lambda_context)
+
+    assert handler._test_recorder.detail_types() == ["artifact.validated"]
+    assert payload["layers"][0]["oscal"]["metadata"]["doc_type"] == "catalog"
+
+
+@pytest.fixture
+def small_oscal_limit_env(env: None, monkeypatch: pytest.MonkeyPatch) -> int:
+    """Set a non-default ``MAX_OSCAL_LAYER_BYTES`` before ``reload_handler`` imports."""
+    limit = len(catalog_blob_bytes()) + 10
+    monkeypatch.setenv("MAX_OSCAL_LAYER_BYTES", str(limit))
+    return limit
+
+
+def test_non_default_max_oscal_layer_bytes_env_applies(
+    small_oscal_limit_env: int, reload_handler, lambda_context
+) -> None:
+    """[OSCAL-001.11]: the deployment limit from the environment is the limit
+    that applies, and the error states it."""
+    handler = reload_handler
+    limit = small_oscal_limit_env
+    assert handler.MAX_OSCAL_LAYER_BYTES == limit
+
+    within = build_bundle()
+    _attestation, event = submit(handler, bundle=within)
+    payload = handler.lambda_handler(event, lambda_context)
+    assert payload["layers"][0]["oscal"]["metadata"]["doc_type"] == "catalog"
+
+    over = _bundle_with_declared_size(catalog_blob_bytes(), limit + 1)
+    _attestation, event = submit(handler, bundle=over)
+    assert handler.lambda_handler(event, lambda_context) is handler._REJECTED
+    failed = handler._test_recorder.details("artifact.validation-failed")
+    assert failed[-1]["errorKind"] == "oscal_layer_too_large"
+    assert f"limit of {limit:,} bytes" in failed[-1]["failedCriteria"][0]["message"]
+
+
+def test_raised_max_oscal_layer_bytes_env_accepts_layer_over_default(
+    env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """[OSCAL-001.11]: a limit above the default accepts a declared size that the
+    default would reject."""
+    import cairn_oscal
+
+    raised = cairn_oscal.DEFAULT_MAX_OSCAL_LAYER_BYTES * 2
+    monkeypatch.setenv("MAX_OSCAL_LAYER_BYTES", str(raised))
+    module = _load_fresh_handler()
+    assert module.MAX_OSCAL_LAYER_BYTES == raised
+
+
+def _load_fresh_handler() -> Any:
+    """Execute the handler module under a throwaway name (no reload side effects)."""
+    import importlib.util
+
+    import cairn_lambda_validate_bundle.handler as handler_module
+
+    spec = importlib.util.spec_from_file_location(
+        "_fresh_validate_handler", handler_module.__file__
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.mark.parametrize("raw", ["0", "-1", "1.5", "abc", "", " ", "16MiB", "1e6", "١٢"])
+def test_malformed_max_oscal_layer_bytes_raises_at_import(
+    env: None, monkeypatch: pytest.MonkeyPatch, raw: str
+) -> None:
+    """A present but malformed value fails the import, never a silent fallback."""
+    monkeypatch.setenv("MAX_OSCAL_LAYER_BYTES", raw)
+    with pytest.raises(ValueError, match="MAX_OSCAL_LAYER_BYTES must be a whole number"):
+        _load_fresh_handler()
+
+
+def test_absent_max_oscal_layer_bytes_uses_library_default(
+    env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import cairn_oscal
+
+    monkeypatch.delenv("MAX_OSCAL_LAYER_BYTES", raising=False)
+    module = _load_fresh_handler()
+    assert module.MAX_OSCAL_LAYER_BYTES == cairn_oscal.DEFAULT_MAX_OSCAL_LAYER_BYTES
+
+
+def test_rejected_second_layer_media_type_after_valid_oscal_layer(
+    reload_handler, lambda_context
+) -> None:
+    """A per-model media type on any layer rejects the bundle, even after a
+    valid ``application/oscal+json`` layer."""
+    handler = reload_handler
+    bundle, layer_blobs = _multi_layer_bundle(
+        layers=[
+            {"media_type": "application/oscal+json", "blob": catalog_blob_bytes(), "title": "a"},
+            {
+                "media_type": "application/oscal.profile+json",
+                "blob": b"{}",
+                "title": "b",
+            },
+        ]
+    )
+    _attestation, event = _submit_multi_layer(handler, bundle, layer_blobs)
+
+    assert handler.lambda_handler(event, lambda_context) is handler._REJECTED
+
+    failed = _single_oscal_failure(handler)
+    assert failed["errorKind"] == "unsupported_media_type"
+    from cairn_oci import compute_sha256_digest
+
+    assert failed["layerDigest"] == compute_sha256_digest(b"{}")
+
+
+def test_extract_oscal_layer_returns_only_version_and_metadata(
+    reload_handler, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The per-layer helper returns ``(version, metadata)`` and no document or bytes."""
+    from cairn_oci import Descriptor
+    from cairn_oscal import OscalLayerMetadata
+
+    handler = reload_handler
+    bundle = build_bundle()
+    handler._test_fake_ecr.add_bundle(bundle)
+    descriptor = Descriptor.model_validate(bundle.manifest_dict["layers"][0])
+    push = type("Push", (), {"registry_id": ACCOUNT_ID, "repository_name": REPO_NAME})()
+
+    result = handler._extract_oscal_layer(descriptor, push=push)
+
+    assert isinstance(result, tuple) and len(result) == 2
+    version, meta = result
+    assert version == OSCAL_VERSION
+    assert isinstance(meta, OscalLayerMetadata)
+
+
+# ---------------------------------------------------------------------------
+# OSCAL rejection paths: no durable write, DLQ record, duplicate delivery,
+# per-layer (not cumulative) limit, failure-field table.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def oscal_fake_index(reload_handler, monkeypatch: pytest.MonkeyPatch) -> Any:
+    """Wire ``_metadata_index()`` to the in-memory facade fake."""
+    from tests.unit.cairn_lambda_validate_bundle.test_coordinate_recording import (
+        FakeMetadataIndex,
+    )
+
+    index = FakeMetadataIndex()
+    monkeypatch.setattr(reload_handler, "_metadata_index", lambda: index)
+    return index
+
+
+def _too_large_bundle(handler: Any, monkeypatch: pytest.MonkeyPatch, mode: str) -> BundleFixture:
+    blob = catalog_blob_bytes()
+    if mode == "declared":
+        return _bundle_with_declared_size(blob, handler.MAX_OSCAL_LAYER_BYTES + 1)
+    # "bytes_longer": the descriptor understates the size; the bounded fetch trips.
+    monkeypatch.setattr(handler, "MAX_OSCAL_LAYER_BYTES", len(blob) - 1)
+    return _bundle_with_declared_size(blob, len(blob) - 1)
+
+
+@pytest.mark.parametrize("mode", ["declared", "bytes_longer"])
+def test_oscal_too_large_rejection_writes_nothing_durable_and_dlqs(
+    reload_handler, lambda_context, oscal_fake_index, monkeypatch: pytest.MonkeyPatch, mode: str
+) -> None:
+    """A too-large OSCAL layer does not advance the pipeline: no validated event,
+    no Metadata_Index write, one in-band DLQ rejection that names the layer."""
+    handler = reload_handler
+    bundle = _too_large_bundle(handler, monkeypatch, mode)
+    _attestation, event = submit(handler, bundle=bundle)
+
+    assert handler.lambda_handler(event, lambda_context) is handler._REJECTED
+
+    failed = _single_oscal_failure(handler)
+    assert failed["errorKind"] == "oscal_layer_too_large"
+    assert oscal_fake_index.rows == {}
+    assert oscal_fake_index.merge_calls == []
+    bodies = handler._test_fake_sqs.bodies()
+    assert len(bodies) == 1
+    assert bodies[0]["errorKind"] == "oscal_layer_too_large"
+    assert bodies[0]["layerDigest"] == bundle.layer_digest
+    assert bodies[0]["failedCriteria"][0]["field"] == f"layer[{bundle.layer_digest}].size"
+
+
+def test_unsupported_media_type_rejection_writes_nothing_durable(
+    reload_handler, lambda_context, oscal_fake_index
+) -> None:
+    handler = reload_handler
+    bundle = build_bundle(layer_media_type="application/oscal.catalog+json")
+    _attestation, event = submit(handler, bundle=bundle)
+
+    assert handler.lambda_handler(event, lambda_context) is handler._REJECTED
+
+    assert oscal_fake_index.rows == {}
+    assert oscal_fake_index.merge_calls == []
+    assert "artifact.validated" not in handler._test_recorder.detail_types()
+
+
+@pytest.mark.parametrize("mode", ["declared", "bytes_longer"])
+def test_duplicate_delivery_of_too_large_bundle_rejects_identically(
+    reload_handler, lambda_context, oscal_fake_index, monkeypatch: pytest.MonkeyPatch, mode: str
+) -> None:
+    """A re-delivered event for the same oversized bundle gives the same
+    permanent rejection each time, never a validated event or a skip."""
+    handler = reload_handler
+    bundle = _too_large_bundle(handler, monkeypatch, mode)
+    _attestation, event = submit(handler, bundle=bundle)
+
+    first = handler.lambda_handler(event, lambda_context)
+    second = handler.lambda_handler(json.loads(json.dumps(event)), lambda_context)
+
+    assert first is handler._REJECTED
+    assert second is handler._REJECTED
+    assert handler._test_recorder.detail_types() == [
+        "artifact.validation-failed",
+        "artifact.validation-failed",
+    ]
+    failed = handler._test_recorder.details("artifact.validation-failed")
+    assert failed[0]["errorKind"] == failed[1]["errorKind"] == "oscal_layer_too_large"
+    assert failed[0]["failedCriteria"] == failed[1]["failedCriteria"]
+    assert [b["errorKind"] for b in handler._test_fake_sqs.bodies()] == [
+        "oscal_layer_too_large",
+        "oscal_layer_too_large",
+    ]
+    assert oscal_fake_index.rows == {}
+    fetched = _fetched_digests(handler).count(bundle.layer_digest)
+    assert fetched == (0 if mode == "declared" else 2)
+
+
+def test_limit_applies_per_layer_not_cumulatively(
+    reload_handler, lambda_context, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two OSCAL layers each at the limit both parse, though together they
+    exceed it ([OSCAL-001]: the limit applies per OSCAL layer)."""
+    handler = reload_handler
+    blob_a = catalog_blob_bytes()
+    blob_b = catalog_blob_bytes(uuid="11111111-2222-4333-8444-555555555555")
+    assert len(blob_a) == len(blob_b)
+    monkeypatch.setattr(handler, "MAX_OSCAL_LAYER_BYTES", len(blob_a))
+    bundle, layer_blobs = _multi_layer_bundle(
+        layers=[
+            {"media_type": "application/oscal+json", "blob": blob_a, "title": "a.json"},
+            {"media_type": "application/oscal+json", "blob": blob_b, "title": "b.json"},
+        ]
+    )
+    _attestation, event = _submit_multi_layer(handler, bundle, layer_blobs)
+
+    payload = handler.lambda_handler(event, lambda_context)
+
+    assert handler._test_recorder.detail_types() == ["artifact.validated"]
+    assert [entry["oscal"]["metadata"]["doc_type"] for entry in payload["layers"]] == [
+        "catalog",
+        "catalog",
+    ]
+    assert handler._test_fake_ecr.blob_fetch_max_bytes[-2:] == [len(blob_a), len(blob_a)]
+
+
+def test_second_oscal_layer_over_limit_rejects_bundle(
+    reload_handler, lambda_context, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A valid first OSCAL layer does not carry a bundle whose second OSCAL
+    layer is over the limit; the failure names the second layer."""
+    from cairn_oci import compute_sha256_digest
+
+    handler = reload_handler
+    small = catalog_blob_bytes()
+    big = catalog_blob_bytes(uuid="11111111-2222-4333-8444-555555555555") + b" " * 64
+    monkeypatch.setattr(handler, "MAX_OSCAL_LAYER_BYTES", len(small))
+    bundle, layer_blobs = _multi_layer_bundle(
+        layers=[
+            {"media_type": "application/oscal+json", "blob": small, "title": "a.json"},
+            {"media_type": "application/oscal+json", "blob": big, "title": "b.json"},
+        ]
+    )
+    _attestation, event = _submit_multi_layer(handler, bundle, layer_blobs)
+
+    assert handler.lambda_handler(event, lambda_context) is handler._REJECTED
+
+    failed = _single_oscal_failure(handler)
+    big_digest = compute_sha256_digest(big)
+    assert failed["errorKind"] == "oscal_layer_too_large"
+    assert failed["layerDigest"] == big_digest
+    assert f"declares {len(big):,} bytes" in failed["failedCriteria"][0]["message"]
+    assert big_digest not in _fetched_digests(handler)
+
+
+def test_non_oscal_layer_over_oscal_limit_is_not_rejected(
+    reload_handler, lambda_context, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The OSCAL limit applies only to OSCAL layers; an opaque layer larger than
+    the limit is neither size-checked nor fetched by validate."""
+    from cairn_oci import compute_sha256_digest
+
+    handler = reload_handler
+    oscal = catalog_blob_bytes()
+    opaque = b"%PDF-1.7 " + b"x" * (len(oscal) * 2)
+    monkeypatch.setattr(handler, "MAX_OSCAL_LAYER_BYTES", len(oscal))
+    bundle, layer_blobs = _multi_layer_bundle(
+        layers=[
+            {"media_type": "application/oscal+json", "blob": oscal, "title": "a.json"},
+            {"media_type": "application/pdf", "blob": opaque, "title": "r.pdf"},
+        ]
+    )
+    _attestation, event = _submit_multi_layer(handler, bundle, layer_blobs)
+
+    handler.lambda_handler(event, lambda_context)
+
+    assert handler._test_recorder.detail_types() == ["artifact.validated"]
+    assert compute_sha256_digest(opaque) not in _fetched_digests(handler)
+
+
+@pytest.mark.parametrize(
+    ("kind", "expected"),
+    [
+        ("unsupported_media_type", "layer[sha256:d].mediaType"),
+        ("oscal_layer_too_large", "layer[sha256:d].size"),
+        ("parse_failure", "layer[sha256:d]"),
+        ("unsupported_doc_type", "layer[sha256:d]"),
+        ("missing_schema_version", "layer[sha256:d].metadata.oscal-version"),
+        ("unsupported_version", "layer[sha256:d].metadata.oscal-version"),
+    ],
+)
+def test_oscal_failure_field_table(reload_handler, kind: str, expected: str) -> None:
+    from cairn_oscal import OscalExtractionError
+
+    err = OscalExtractionError("m", error_kind=kind, layer_digest="sha256:d")  # type: ignore[arg-type]
+    assert reload_handler._oscal_failure_field(err) == expected
+
+
+def test_oscal_failure_field_without_digest_or_known_kind(reload_handler) -> None:
+    """A missing digest renders as ``unknown``; an unlisted kind falls back to
+    the layer itself rather than raising."""
+    from cairn_oscal import OscalExtractionError
+
+    no_digest = OscalExtractionError("m", error_kind="oscal_layer_too_large")
+    assert reload_handler._oscal_failure_field(no_digest) == "layer[unknown].size"
+    odd = OscalExtractionError("m", error_kind="not-a-kind", layer_digest="sha256:d")  # type: ignore[arg-type]
+    assert reload_handler._oscal_failure_field(odd) == "layer[sha256:d]"
+
+
+def test_unsupported_doc_type_failure_names_the_layer(
+    reload_handler, lambda_context, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``extract_oscal_metadata`` receives the layer digest, so an
+    ``unsupported_doc_type`` failure event names the layer."""
+    handler = reload_handler
+    monkeypatch.setattr("cairn_oscal.extraction._BODY_TO_DOC_TYPE", {})
+    bundle = build_bundle()
+    _attestation, event = submit(handler, bundle=bundle)
+
+    assert handler.lambda_handler(event, lambda_context) is handler._REJECTED
+
+    failed = _single_oscal_failure(handler)
+    assert failed["errorKind"] == "unsupported_doc_type"
+    assert failed["layerDigest"] == bundle.layer_digest
+    assert failed["failedCriteria"][0]["field"] == f"layer[{bundle.layer_digest}]"
+
+
+def test_transient_fetch_error_on_oscal_layer_is_not_a_size_rejection(
+    reload_handler, lambda_context
+) -> None:
+    """A transient ``EcrFetchError`` on the bounded OSCAL fetch propagates for
+    retry; it is never reported as ``oscal_layer_too_large``."""
+    from cairn_lambda_validate_bundle.ecr_client import EcrFetchError
+
+    handler = reload_handler
+    bundle = build_bundle()
+    _attestation, event = submit(handler, bundle=bundle)
+    handler._test_fake_ecr.fetch_blob_side_effects[bundle.layer_digest] = EcrFetchError(
+        "blob GET returned HTTP 503"
+    )
+
+    with pytest.raises(EcrFetchError):
+        handler.lambda_handler(event, lambda_context)
+
+    assert "artifact.validated" not in handler._test_recorder.detail_types()
+    assert all(
+        d.get("errorKind") != "oscal_layer_too_large"
+        for d in handler._test_recorder.details("artifact.validation-failed")
+    )
+
+
+def test_env_limit_with_surrounding_whitespace_is_accepted(
+    env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MAX_OSCAL_LAYER_BYTES", " 2048\n")
+    assert _load_fresh_handler().MAX_OSCAL_LAYER_BYTES == 2048
+
+
+def test_malformed_env_limit_message_is_bounded_and_escaped(
+    env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A long or control-character value does not flood or forge the log line."""
+    monkeypatch.setenv("MAX_OSCAL_LAYER_BYTES", "\x1b[31m" + "9x" * 5000)
+    with pytest.raises(ValueError) as exc_info:
+        _load_fresh_handler()
+    msg = str(exc_info.value)
+    assert "\x1b" not in msg
+    assert msg.isascii()
+    assert len(msg) < 200

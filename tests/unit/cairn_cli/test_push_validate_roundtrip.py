@@ -134,10 +134,9 @@ def minimal_oscal_file(tmp_path: Path) -> Path:
     """A minimal OSCAL catalog JSON layer.
 
     The root key ``catalog`` makes ``sniff_media_type`` resolve the layer to
-    ``application/oscal.catalog+json`` (an ``application/oscal.*`` type) — the real
-    CLI path for an OSCAL bundle. The validator only inspects the layer's
-    media-type prefix here, so a minimal-but-real OSCAL root is sufficient; no
-    full document is needed.
+    ``application/oscal+json`` — the real CLI path for an OSCAL bundle. The
+    validator only inspects the layer's media type here, so a minimal-but-real
+    OSCAL root is sufficient; no full document is needed.
     """
     p = tmp_path / "catalog.json"
     p.write_text(json.dumps({"catalog": {"uuid": "11111111-1111-4111-8111-111111111111"}}))
@@ -208,7 +207,7 @@ def test_default_push_artifacts_roundtrip_through_validator_with_zero_errors(
     # Manifest_Digest.
     assert "dev.cairnproofs.artifact.artifact-kind" not in annotations
     assert "bundleType" not in config_blob_json
-    assert call["files"][0][1] == "application/oscal.catalog+json"
+    assert call["files"][0][1] == "application/oscal+json"
 
     manifest = _build_manifest(call)
     config_blob_bytes: bytes = call["config_bytes"]

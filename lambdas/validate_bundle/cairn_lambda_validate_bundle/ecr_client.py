@@ -27,11 +27,16 @@ _HTTP: urllib3.PoolManager | None = None
 
 # Per-blob ceiling for layer downloads (10 GiB per artifact-ingestion [INGEST-003]).
 # Single-sourced from cairn_oci so this fetch cap cannot drift from the canonical
-# per-artifact size bound. We stream into memory because the OSCAL parse cap is
-# 64 MiB and other layers are not parsed by this Lambda — just digest-checked
-# downstream. (Over-cap here stays a transient EcrFetchError — the authoritative
-# permanent byte-true rejection is at archive-to-s3.)
+# per-artifact size bound. We read into memory because this Lambda fetches
+# only small blobs (the Config_Blob, the producer attestation statement) and
+# OSCAL layers. For an OSCAL layer the handler passes the deployment's
+# per-layer OSCAL limit (the MAX_OSCAL_LAYER_BYTES environment variable,
+# default cairn_oscal.DEFAULT_MAX_OSCAL_LAYER_BYTES) as ``max_bytes``. Other
+# content layers are not fetched by this Lambda, just digest-checked downstream.
+# (Over-ceiling without ``max_bytes`` stays a transient EcrFetchError; the
+# authoritative permanent byte-true rejection is at archive-to-s3.)
 _MAX_BLOB_BYTES = MAX_ARTIFACT_SIZE_BYTES
+_READ_CHUNK_BYTES = 64 * 1024
 
 
 class EcrFetchError(RuntimeError):
@@ -39,6 +44,21 @@ class EcrFetchError(RuntimeError):
 
     This is the TRANSIENT classification: the handler lets Lambda retry on it.
     """
+
+
+class BlobSizeLimitExceeded(RuntimeError):
+    """The blob bytes are longer than the caller's ``max_bytes`` limit.
+
+    This is a PERMANENT classification: the same bytes give the same result
+    on a retry. ``digest`` names the blob and ``limit`` is the limit that
+    applied. The read stopped after ``limit + 1`` bytes, so the full length
+    is not known.
+    """
+
+    def __init__(self, digest: str, *, limit: int) -> None:
+        super().__init__(f"blob {digest} has bytes longer than the limit of {limit:,} bytes")
+        self.digest = digest
+        self.limit = limit
 
 
 class ImageNotFoundError(RuntimeError):
@@ -154,12 +174,17 @@ def fetch_blob(
     registry_id: str,
     repository_name: str,
     blob_digest: str,
+    max_bytes: int | None = None,
 ) -> bytes:
     """Fetch a layer/config blob body by digest.
 
     Uses ECR's ``get_download_url_for_layer`` to obtain a presigned URL
     and an HTTP GET to pull the bytes. ECR treats Config_Blob and layer
     blobs identically at this endpoint.
+
+    With ``max_bytes`` set, the read stops after ``max_bytes + 1`` bytes and
+    raises the permanent :class:`BlobSizeLimitExceeded`. Without it, a blob
+    over the per-artifact ceiling raises the transient :class:`EcrFetchError`.
     """
     url_resp = _ecr().get_download_url_for_layer(
         registryId=registry_id,
@@ -175,12 +200,20 @@ def fetch_blob(
     try:
         if response.status != 200:
             raise EcrFetchError(f"blob GET for {blob_digest!r} returned HTTP {response.status}")
-        # Stream-read with a ceiling to guard against pathological producers.
+        # Read with a ceiling to guard against pathological producers. Each
+        # read asks for no more than the bytes left before the ceiling plus
+        # one, so the loop never reads more than ``ceiling + 1`` bytes.
+        ceiling = _MAX_BLOB_BYTES if max_bytes is None else max_bytes
         chunks: list[bytes] = []
         size = 0
-        for chunk in response.stream(64 * 1024):
+        while True:
+            chunk = response.read(min(_READ_CHUNK_BYTES, ceiling + 1 - size))
+            if not chunk:
+                break
             size += len(chunk)
-            if size > _MAX_BLOB_BYTES:
+            if size > ceiling:
+                if max_bytes is not None:
+                    raise BlobSizeLimitExceeded(blob_digest, limit=max_bytes)
                 raise EcrFetchError(
                     f"blob {blob_digest!r} exceeds per-artifact size cap ({_MAX_BLOB_BYTES} bytes)"
                 )

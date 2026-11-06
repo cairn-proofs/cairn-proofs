@@ -41,6 +41,27 @@ export function validateDaySetting(
   return value;
 }
 
+/** Per-artifact size ceiling, 10 GiB (`cairn_oci.MAX_ARTIFACT_SIZE_BYTES`). */
+export const MAX_ARTIFACT_SIZE_BYTES = 10 * 1024 ** 3;
+
+/**
+ * Synth-time check for the optional `maxOscalLayerBytes` context key
+ * ([OSCAL-001]). `undefined` passes through, so the Lambda uses the
+ * `cairn_oscal` default. This code holds no copy of that default.
+ */
+export function validateMaxOscalLayerBytes(value: number | undefined): number | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!Number.isInteger(value) || value < 1 || value > MAX_ARTIFACT_SIZE_BYTES) {
+    throw new Error(
+      `maxOscalLayerBytes must be a whole number of bytes from 1 to ` +
+        `${MAX_ARTIFACT_SIZE_BYTES} (10 GiB) ([OSCAL-001]); got ${value}.`,
+    );
+  }
+  return value;
+}
+
 export interface ArtifactStoreStackProps extends StackProps {
   /**
    * Application name — the leading segment of every AWS resource physical name
@@ -103,6 +124,13 @@ export interface ArtifactStoreStackProps extends StackProps {
    * to 365, checked at synth.
    */
   readonly unarchivedManifestWindowDays?: number;
+  /**
+   * Per-layer OSCAL size limit in bytes ([OSCAL-001]). When set, it reaches
+   * the validate-bundle Lambda as `MAX_OSCAL_LAYER_BYTES`. When not set, the
+   * variable is absent and the handler uses the `cairn_oscal` default. Bounds
+   * 1 to `MAX_ARTIFACT_SIZE_BYTES`, checked at synth.
+   */
+  readonly maxOscalLayerBytes?: number;
   /**
    * IAM user ARNs in the deployment account that may assume the per-project
    * pruner role ([ACCESS-007]). Must be non-empty.
@@ -169,6 +197,7 @@ export class ArtifactStoreStack extends Stack {
       props.unarchivedManifestWindowDays ?? UNARCHIVED_MANIFEST_WINDOW_DAYS.default,
       UNARCHIVED_MANIFEST_WINDOW_DAYS,
     );
+    const maxOscalLayerBytes = validateMaxOscalLayerBytes(props.maxOscalLayerBytes);
     if (props.prunerPrincipalArns.length === 0) {
       throw new Error(
         'prunerPrincipalArns must name at least one designated pruner principal ([ACCESS-007]).',
@@ -559,6 +588,7 @@ export class ArtifactStoreStack extends Stack {
       signingProfile: this.signing.signingProfile,
       timestampProviderParam: this.signing.timestampProviderParam,
       retentionParamName,
+      maxOscalLayerBytes,
     });
 
     // Alarms are constructed AFTER LambdaFunctions because the

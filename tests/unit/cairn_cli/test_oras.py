@@ -62,7 +62,7 @@ def _do_push(tmp_path: Path, annotations: dict[str, str]) -> Path:
         reference="registry.example/repo",
         config_file=config_file,
         config_media_type="application/vnd.cairn.config+json",
-        files=[(layer, "application/oscal.catalog+json", "catalog.json")],
+        files=[(layer, "application/oscal+json", "catalog.json")],
         annotations=annotations,
         export_manifest_to=export_to,
     )

@@ -18,14 +18,16 @@ import pytest
 class _FakeStreamResponse:
     body: bytes
     status: int = 200
+    bytes_read: int = 0
+    released: bool = False
 
-    def stream(self, chunk_size: int):
-        view = memoryview(self.body)
-        for i in range(0, len(view), chunk_size):
-            yield bytes(view[i : i + chunk_size])
+    def read(self, amt: int) -> bytes:
+        chunk = self.body[self.bytes_read : self.bytes_read + amt]
+        self.bytes_read += len(chunk)
+        return chunk
 
     def release_conn(self) -> None:
-        return None
+        self.released = True
 
 
 @dataclass
@@ -169,6 +171,82 @@ def test_fetch_blob_enforces_size_cap(monkeypatch: pytest.MonkeyPatch) -> None:
         )
 
 
+def _stub_blob(monkeypatch: pytest.MonkeyPatch, body: bytes) -> _FakeStreamResponse:
+    import cairn_lambda_validate_bundle.ecr_client as mod
+
+    fake_ecr = MagicMock()
+    fake_ecr.get_download_url_for_layer.return_value = {"downloadUrl": "https://signed.example/x"}
+    response = _FakeStreamResponse(body=body)
+    monkeypatch.setattr(mod, "_ecr", lambda: fake_ecr)
+    monkeypatch.setattr(mod, "_http", lambda: _FakeHttp(response=response))
+    return response
+
+
+@pytest.mark.parametrize("max_bytes", [1, 1000, 64 * 1024, 200_000])
+def test_fetch_blob_max_bytes_exceeded_is_permanent_and_bounded(
+    monkeypatch: pytest.MonkeyPatch, max_bytes: int
+) -> None:
+    """A stream of ``max_bytes + 1`` bytes (or more) raises the permanent
+    ``BlobSizeLimitExceeded`` and reads no more than ``max_bytes + 1`` bytes."""
+    import cairn_lambda_validate_bundle.ecr_client as mod
+
+    digest = "sha256:" + "f" * 64
+    for body_len in (max_bytes + 1, max_bytes * 3 + 70_000):
+        response = _stub_blob(monkeypatch, b"x" * body_len)
+        with pytest.raises(mod.BlobSizeLimitExceeded) as exc_info:
+            mod.fetch_blob(
+                registry_id="111122223333",
+                repository_name="artifact-cmh-alpha/p/catalog",
+                blob_digest=digest,
+                max_bytes=max_bytes,
+            )
+        err = exc_info.value
+        assert not isinstance(err, mod.EcrFetchError)
+        assert err.digest == digest
+        assert err.limit == max_bytes
+        assert digest in str(err)
+        assert "longer than the limit" in str(err)
+        assert f"{max_bytes:,} bytes" in str(err)
+        assert response.bytes_read <= max_bytes + 1
+        assert response.released
+
+
+@pytest.mark.parametrize("max_bytes", [1, 1000, 64 * 1024, 200_000])
+def test_fetch_blob_at_max_bytes_returns_bytes(
+    monkeypatch: pytest.MonkeyPatch, max_bytes: int
+) -> None:
+    import cairn_lambda_validate_bundle.ecr_client as mod
+
+    payload = bytes(i % 251 for i in range(max_bytes))
+    _stub_blob(monkeypatch, payload)
+    result = mod.fetch_blob(
+        registry_id="111122223333",
+        repository_name="artifact-cmh-alpha/p/catalog",
+        blob_digest="sha256:" + "f" * 64,
+        max_bytes=max_bytes,
+    )
+    assert result == payload
+
+
+def test_fetch_blob_without_max_bytes_keeps_transient_ceiling(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Without ``max_bytes`` the over-ceiling error stays the transient
+    ``EcrFetchError``, never ``BlobSizeLimitExceeded``."""
+    import cairn_lambda_validate_bundle.ecr_client as mod
+
+    monkeypatch.setattr(mod, "_MAX_BLOB_BYTES", 1024)
+    response = _stub_blob(monkeypatch, b"x" * 4096)
+    with pytest.raises(mod.EcrFetchError) as exc_info:
+        mod.fetch_blob(
+            registry_id="111122223333",
+            repository_name="artifact-cmh-alpha/p/catalog",
+            blob_digest="sha256:" + "f" * 64,
+        )
+    assert not isinstance(exc_info.value, mod.BlobSizeLimitExceeded)
+    assert response.bytes_read <= 1025
+
+
 def test_module_level_client_factories_cache_singletons(monkeypatch: pytest.MonkeyPatch) -> None:
     """``_ecr`` and ``_http`` cache one client per process.
 
@@ -187,3 +265,102 @@ def test_module_level_client_factories_cache_singletons(monkeypatch: pytest.Monk
     assert mod._ecr() is sentinel_ecr
     assert mod._http() is sentinel_http
     assert mod._http() is sentinel_http
+
+
+@dataclass
+class _ShortReadResponse(_FakeStreamResponse):
+    """A response whose ``read(amt)`` returns at most ``max_chunk`` bytes, as a
+    raw socket read can before EOF."""
+
+    max_chunk: int = 7
+    requested: list[int] = field(default_factory=list)
+
+    def read(self, amt: int) -> bytes:
+        self.requested.append(amt)
+        return super().read(min(amt, self.max_chunk))
+
+
+def _stub_response(monkeypatch: pytest.MonkeyPatch, response: _FakeStreamResponse) -> None:
+    import cairn_lambda_validate_bundle.ecr_client as mod
+
+    fake_ecr = MagicMock()
+    fake_ecr.get_download_url_for_layer.return_value = {"downloadUrl": "https://signed.example/x"}
+    monkeypatch.setattr(mod, "_ecr", lambda: fake_ecr)
+    monkeypatch.setattr(mod, "_http", lambda: _FakeHttp(response=response))
+
+
+def test_fetch_blob_short_reads_reassemble_within_max_bytes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import cairn_lambda_validate_bundle.ecr_client as mod
+
+    payload = bytes(range(100))
+    response = _ShortReadResponse(body=payload)
+    _stub_response(monkeypatch, response)
+
+    result = mod.fetch_blob(
+        registry_id="111122223333",
+        repository_name="artifact-cmh-alpha/p/catalog",
+        blob_digest="sha256:" + "f" * 64,
+        max_bytes=100,
+    )
+
+    assert result == payload
+    assert all(1 <= amt <= 101 for amt in response.requested)
+    assert response.released
+
+
+def test_fetch_blob_short_reads_still_detect_over_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    import cairn_lambda_validate_bundle.ecr_client as mod
+
+    response = _ShortReadResponse(body=b"y" * 1000)
+    _stub_response(monkeypatch, response)
+
+    with pytest.raises(mod.BlobSizeLimitExceeded):
+        mod.fetch_blob(
+            registry_id="111122223333",
+            repository_name="artifact-cmh-alpha/p/catalog",
+            blob_digest="sha256:" + "f" * 64,
+            max_bytes=100,
+        )
+    assert response.bytes_read == 101
+    assert response.released
+
+
+def test_fetch_blob_non_200_with_max_bytes_stays_transient(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An HTTP error on the bounded OSCAL fetch is the transient
+    ``EcrFetchError``, never the permanent size classification."""
+    import cairn_lambda_validate_bundle.ecr_client as mod
+
+    response = _FakeStreamResponse(body=b"<Error><Code>AccessDenied</Code></Error>", status=403)
+    _stub_response(monkeypatch, response)
+
+    with pytest.raises(mod.EcrFetchError, match="HTTP 403") as exc_info:
+        mod.fetch_blob(
+            registry_id="111122223333",
+            repository_name="artifact-cmh-alpha/p/catalog",
+            blob_digest="sha256:" + "f" * 64,
+            max_bytes=1,
+        )
+    assert not isinstance(exc_info.value, mod.BlobSizeLimitExceeded)
+    assert response.bytes_read == 0
+    assert response.released
+
+
+def test_fetch_blob_empty_body_with_max_bytes_returns_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import cairn_lambda_validate_bundle.ecr_client as mod
+
+    _stub_response(monkeypatch, _FakeStreamResponse(body=b""))
+    assert (
+        mod.fetch_blob(
+            registry_id="111122223333",
+            repository_name="artifact-cmh-alpha/p/catalog",
+            blob_digest="sha256:" + "f" * 64,
+            max_bytes=10,
+        )
+        == b""
+    )

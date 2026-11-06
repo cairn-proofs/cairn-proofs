@@ -14,7 +14,7 @@ model at `threat-models/<change>.tc.json`. It never writes the model: the
   malformed, or (at the apply stage) an open threat still depends on an
   unresolved mitigation. `--stage propose` skips that last check, because at
   propose time no mitigation is built yet. A mitigation tagged
-  `deferred:cp-threat-models-private#<n>` is deferred to the private follow-up
+  `deferred:tm-private#<n>` is deferred to the private follow-up
   issue `<n>`; it does not hold back this change.
 - **report** — write `openspec/changes/<change>/threat-model-report.md`, a
   sanitized summary that is safe to commit to the public repo. It holds no
@@ -61,7 +61,9 @@ TASK_TAG_PREFIX = "task:"
 DEFERRED_TAG_PREFIX = "deferred:"
 # A deferred mitigation names its follow-up issue in the private threat-model
 # repository, so the public repository never carries the threat's description.
-_DEFERRED_TAG = re.compile(r"deferred:cp-threat-models-private#[1-9]\d*")
+# `tm-private` names cairn-proofs/cp-threat-models-private. The short name keeps
+# the tag within Threat Composer's 30-character tag limit.
+_DEFERRED_TAG = re.compile(r"deferred:tm-private#[1-9]\d*")
 STAGES = ("propose", "apply")
 _TASK_LINE = re.compile(r"^\s*- \[([ xX])\] (\d+(?:\.\d+)+)\b")
 
@@ -159,7 +161,7 @@ def gate(model: dict[str, Any], stage: str = "apply") -> list[str]:
     """Return a list of fail-closed violations; empty means the gate passes.
 
     Every mitigation with a `deferred:` tag must carry only well-formed
-    `deferred:cp-threat-models-private#<n>` tags and no `task:` tag.
+    `deferred:tm-private#<n>` tags and no `task:` tag.
 
     Dismissed (`threatResolvedNotUseful`) threats are skipped. For every other
     threat, these conditions fail the gate:
@@ -184,7 +186,7 @@ def gate(model: dict[str, Any], stage: str = "apply") -> list[str]:
         if malformed:
             violations.append(
                 f"mitigation {mid}: malformed deferred tag(s) {', '.join(malformed)} "
-                f"(expected deferred:cp-threat-models-private#<n>)"
+                f"(expected deferred:tm-private#<n>)"
             )
         elif _task_tags(mitigation):
             violations.append(f"mitigation {mid}: has both task: and deferred: tags")

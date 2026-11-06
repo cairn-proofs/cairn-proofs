@@ -2,15 +2,24 @@
 
 from __future__ import annotations
 
+from typing import get_args
+
 import pytest
-from cairn_oscal.errors import OscalExtractionError
+from cairn_oscal.errors import OscalErrorKind, OscalExtractionError
 
 ALL_ERROR_KINDS = [
     "missing_schema_version",
     "unsupported_version",
     "parse_failure",
     "unsupported_doc_type",
+    "unsupported_media_type",
+    "oscal_layer_too_large",
 ]
+
+
+def test_all_error_kinds_matches_the_literal() -> None:
+    """The test list covers exactly the `OscalErrorKind` literal."""
+    assert set(ALL_ERROR_KINDS) == set(get_args(OscalErrorKind))
 
 
 @pytest.mark.parametrize("kind", ALL_ERROR_KINDS)
