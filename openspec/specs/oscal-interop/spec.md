@@ -6,7 +6,7 @@ oscal-interop is the first interop module on Cairn's format-agnostic foundation.
 OSCAL support is first-class, expressed as **module ownership**: oscal-interop owns the `application/oscal.*` media-type family and is fully responsible for:
 
 1. the OSCAL media-type taxonomy (`application/oscal.{model}+json`);
-2. the content-derived schema-version model — each OSCAL layer's version is read from the document's own `metadata.oscal-version`, never from a producer declaration;
+2. the content-derived schema-version model — each OSCAL layer's version is read from the document's own `metadata.oscal-version`;
 3. SDK-based metadata extraction;
 4. the rule that extraction failure is a permanent validation failure;
 5. the OSCAL encoding of the universal artifact reference (resource elements with rlinks to ECR and S3 — the foundation *generates* that reference, see processing-pipeline);
@@ -17,6 +17,7 @@ A declared-OSCAL bundle that cannot be processed as OSCAL is rejected; there is 
 *Domain terms (`Capitalized_Underscore`) used below are defined in [GLOSSARY.md](../../GLOSSARY.md), which names the governing requirement for each.*
 
 ## Requirements
+
 ### Requirement: [OSCAL-001] OSCAL SDK-based extraction with content-derived schema version
 
 WHEN an Artifact_Bundle contains one or more layers with an OSCAL media type matching `application/oscal.*`, then for each such layer the Processing_Pipeline SHALL:
@@ -25,18 +26,16 @@ WHEN an Artifact_Bundle contains one or more layers with an OSCAL media type mat
 2. derive the OSCAL schema version from the parsed document's **own content** (`metadata.oscal-version`);
 3. gate that the derived version is a supported OSCAL 1.x version string.
 
-The schema version is NOT producer-declared: the Config_Blob `oscalSchemaVersion` field, if present, SHALL be ignored (tolerated, not read) on the ingestion path.
-
 IF a layer's bytes lack a readable `metadata.oscal-version` string, OR carry a version that is not a supported OSCAL 1.x string, OR the SDK cannot parse the layer, THEN the Processing_Pipeline SHALL treat this as a permanent validation failure. SDK parse success remains the gate; no separate conformance check against the NIST OSCAL JSON schema is performed.
 
-The version is read from the document the pipeline already parses model-agnostically. So a future OSCAL-2.0 document that is structurally parseable is rejected cleanly by the 1.x gate on its own embedded version, and one that is not parseable is rejected as a permanent parse failure. Either way the content read is the same seam at which a future multi-version SDK registry (OscalPythonBindings FR-6) would select a binding, so making the version content-derived does not foreclose multi-version dispatch.
+The version is read from the document the pipeline already parses model-agnostically. So a future OSCAL-2.0 document that is structurally parseable is rejected cleanly by the 1.x gate on its own embedded version, and one that is not parseable is rejected as a permanent parse failure. Either way the content read is the same seam at which a future multi-version SDK registry (OscalPythonBindings FR-6) would select a binding, so reading the version from content does not foreclose multi-version dispatch.
 
-From the same parsed document, the Processing_Pipeline SHALL additionally read each OSCAL layer's in-band `metadata.last-modified` timestamp and, where the document carries it, `metadata.published`. These are content-derived per-layer timestamps read alongside `metadata.oscal-version`, `metadata.title`, and `metadata.version`; reading them adds no new gate — a layer that parses but carries no `metadata.last-modified` is not rejected on that basis. They are the canonical content-time source consumed by the relocated per-OSCAL-layer temporal-consistency check (see the processing-pipeline temporal-consistency Requirement) and by the metadata projection via the *OSCAL metadata population* Requirement below.
+From the same parsed document, the Processing_Pipeline SHALL additionally read each OSCAL layer's in-band `metadata.last-modified` timestamp and, where the document carries it, `metadata.published`. These are content-derived per-layer timestamps read alongside `metadata.oscal-version`, `metadata.title`, and `metadata.version`; reading them adds no new gate — a layer that parses but carries no `metadata.last-modified` is not rejected on that basis. They are the canonical content-time source consumed by the per-OSCAL-layer temporal-consistency check (see the processing-pipeline temporal-consistency Requirement) and by the metadata projection via the *OSCAL metadata population* Requirement below.
 
 #### Scenario: [OSCAL-001.01] OSCAL bundle parses successfully with content-derived schema version
 
 - **WHEN** an Artifact_Bundle is submitted with an OSCAL layer of media type `application/oscal.assessment-results+json` whose document `metadata.oscal-version` is a supported 1.x value (e.g., `1.1.2`) and the single 1.x binding successfully parses the document
-- **THEN** the Processing_Pipeline derives the schema version from the layer's own content, accepts the OSCAL extraction, and proceeds to subsequent pipeline stages without consulting any Config_Blob `oscalSchemaVersion` value
+- **THEN** the Processing_Pipeline derives the schema version from the layer's own content, accepts the OSCAL extraction, and proceeds to subsequent pipeline stages
 
 #### Scenario: [OSCAL-001.02] SDK parse failure is permanent validation failure
 
@@ -61,7 +60,7 @@ From the same parsed document, the Processing_Pipeline SHALL additionally read e
 #### Scenario: [OSCAL-001.06] Per-layer in-band timestamps are extracted alongside the schema version
 
 - **WHEN** an OSCAL layer parses successfully and its document carries `metadata.last-modified` (and, optionally, `metadata.published`)
-- **THEN** the Processing_Pipeline reads those timestamps from the same parsed document as content-derived per-layer values, makes them available to the relocated per-OSCAL-layer temporal-consistency check and the metadata projection, and does not treat the absence of `metadata.published` (or, for a non-OSCAL layer, the absence of any embedded timestamp) as an extraction failure
+- **THEN** the Processing_Pipeline reads those timestamps from the same parsed document as content-derived per-layer values, makes them available to the per-OSCAL-layer temporal-consistency check and the metadata projection, and does not treat the absence of `metadata.published` (or, for a non-OSCAL layer, the absence of any embedded timestamp) as an extraction failure
 
 ### Requirement: [OSCAL-002] OSCAL-aligned media type taxonomy
 
@@ -72,7 +71,7 @@ These media types are the canonical signal that triggers OSCAL-specific pipeline
 #### Scenario: [OSCAL-002.01] Media type drives OSCAL pipeline branching
 
 - **WHEN** a layer in an Artifact_Bundle declares media type `application/oscal.system-security-plan+json`
-- **THEN** the Processing_Pipeline routes that layer through the OSCAL SDK extraction path and treats the bundle as OSCAL-bearing for purposes of `oscalSchemaVersion` enforcement and OSCAL reference generation
+- **THEN** the Processing_Pipeline routes that layer through the OSCAL SDK extraction path and treats the bundle as OSCAL-bearing for purposes of schema-version gating and OSCAL reference generation
 
 #### Scenario: [OSCAL-002.02] Non-OSCAL media type bypasses OSCAL handling
 
@@ -87,27 +86,22 @@ WHEN OSCAL extraction succeeds for all OSCAL layers in a bundle, the Processing_
 2. control references;
 3. assessment start date and assessment end date;
 4. Assessment Results UUID and SSP UUID;
-5. the OSCAL schema version, **extracted per layer from the document's own `metadata.oscal-version`** (not from a producer-declared field);
+5. the OSCAL schema version, **extracted per layer from the document's own `metadata.oscal-version`**;
 6. each OSCAL layer's in-band `metadata.last-modified` (and `metadata.published` where the document carries it).
 
-The extracted version and the per-layer in-band timestamps SHALL be normalized into the emitted `artifact.validated` event per OSCAL layer, for downstream indexing and for the relocated per-OSCAL-layer temporal-consistency check (see the processing-pipeline temporal-consistency Requirement), mirroring how the resolved `assessment-period` is carried forward.
+The extracted version and the per-layer in-band timestamps SHALL be normalized into the emitted `artifact.validated` event per OSCAL layer, for downstream indexing and for the per-OSCAL-layer temporal-consistency check (see the processing-pipeline temporal-consistency Requirement), mirroring how the resolved `assessment-period` is carried forward.
 
-There is NO declared↔embedded schema-version cross-check: the OSCAL document is the single source of the version, so there is nothing to reconcile. A `oscalSchemaVersion` value still present in a producer's Config_Blob is ignored and SHALL NOT cause a validation failure on any disagreement with the embedded value. The per-layer `metadata.last-modified`/`metadata.published` timestamps are likewise content-derived from the document, never producer-declared; `metadata.published` is optional and its absence SHALL NOT cause a validation failure.
+The per-layer `metadata.last-modified`/`metadata.published` timestamps are content-derived from the document; `metadata.published` is optional and its absence SHALL NOT cause a validation failure.
 
 #### Scenario: [OSCAL-003.01] Successful extraction populates Metadata_Index
 
 - **WHEN** a valid OSCAL Assessment Results document is processed and its embedded `metadata.oscal-version` is a supported 1.x value
 - **THEN** the metadata extraction function extracts system name, control references, assessment start date, assessment end date, Assessment Results UUID, SSP UUID, the document-embedded `oscal-version`, and the document-embedded `metadata.last-modified` (plus `metadata.published` when present), all extracted values match the values in the source document, and the Metadata_Index is populated with those values plus the content-extracted `oscalSchemaVersion`
 
-#### Scenario: [OSCAL-003.02] Stale declared version does not cause a mismatch failure
-
-- **WHEN** an OSCAL bundle is processed whose Config_Blob still declares an `oscalSchemaVersion` that differs from the document's embedded `oscal-version`
-- **THEN** the Processing_Pipeline ignores the declared value, indexes the embedded version, and does NOT reject the bundle on the declared/embedded disagreement, because the declared value is not read
-
 #### Scenario: [OSCAL-003.03] In-band last-modified is carried forward for the temporal-consistency check
 
 - **WHEN** a valid OSCAL document is processed whose `metadata.last-modified` is readable
-- **THEN** the Processing_Pipeline normalizes that per-layer `metadata.last-modified` into the emitted `artifact.validated` event so the relocated per-OSCAL-layer temporal-consistency check can compare it against `ecrPushedAt`, and includes it in the Metadata_Index projection
+- **THEN** the Processing_Pipeline normalizes that per-layer `metadata.last-modified` into the emitted `artifact.validated` event so the per-OSCAL-layer temporal-consistency check can compare it against `ecrPushedAt`, and includes it in the Metadata_Index projection
 
 #### Scenario: [OSCAL-003.04] Missing optional published does not fail population
 
@@ -161,3 +155,9 @@ The reference's resource identity is content-agnostic and deterministic: the res
 
 - **WHEN** a non-OSCAL Artifact_Bundle (no `application/oscal.*` layer) is validated with an archive bucket configured
 - **THEN** the encoded reference's resource `uuid` and `document-ids[0]` both derive from `uuidv5(CAIRN_NAMESPACE, Manifest_Digest)` (no OSCAL root `uuid` being present), and the body is otherwise identical in form to an OSCAL bundle's reference
+
+## Relocated and Retired IDs
+
+| ID | Status | Resolves to |
+|---|---|---|
+| OSCAL-003.02 | withdrawn | |
