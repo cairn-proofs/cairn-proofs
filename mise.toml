@@ -6,10 +6,6 @@ aws = "latest"
 pre-commit = "latest"
 oras = "latest"
 "npm:@fission-ai/openspec" = "1.15.0"
-# Mermaid CLI — renders threat-model DFDs to PNG for embedding in Threat Composer
-# (dev-time, propose-flow only; off the deploy.sh path). Puppeteer fetches its
-# own Chromium on `mise install`. See docs/adr/0013-* and openspec/tools/tc_render.py.
-"npm:@mermaid-js/mermaid-cli" = "latest"
 github-cli = "latest"
 # Semgrep — SAST gate over the Python workspace + TypeScript CDK app, scanned
 # offline against vendored rule content under tools/semgrep/rules/ (see
@@ -146,19 +142,6 @@ run = "uv run python openspec/tools/tc.py reconcile"
 [tasks.tm-report]
 description = "Write a change's sanitized threat-model report (usage: mise run tm-report <change> [-- --check])"
 run = "uv run python openspec/tools/tc.py report"
-
-# OBSOLETE: tm-render and mmdc-setup. The threat-composer MCP server (sys_render)
-# renders threat-model diagrams, no flow step calls these tasks, and tm-render's
-# default path (openspec/changes/<change>/threat-model.tc.json) does not exist.
-# Removal is tracked in https://github.com/cairn-proofs/cairn-proofs/issues/97.
-[tasks.tm-render]
-description = "Render a change's threat-model Mermaid DFD/architecture diagrams to embedded PNGs (usage: mise run tm-render <change>)"
-run = "uv run python openspec/tools/tc_render.py"
-
-[tasks.mmdc-setup]
-description = "One-time: provision the headless browser mmdc needs for tm-render (opt-in; not run in CI/deploy)"
-run = "./openspec/tools/provision-mmdc-browser.sh"
-
 [tasks.cdk-deploy]
 description = "Re/deploy the CDK app"
 run = "./cdk/scripts/deploy.sh"

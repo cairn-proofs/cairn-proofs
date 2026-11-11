@@ -81,8 +81,6 @@ Why this needs no branches: every harness loads the same `AGENTS.md` and receive
 | Script | Purpose |
 |--------|---------|
 | `tc.py` | Reads the private model and never writes it. `reconcile` prints the mitigation and threat status changes that the checked tasks justify, from `task:<N.M>` tags on the mitigations; the session applies them with the MCP tool `tm_set_status`. `gate` is fail-closed: nonzero if a threat has no valid `Priority`, a High threat has no mitigation, or an open threat depends on an unresolved mitigation. `report` writes the sanitized `threat-model-report.md`; `report --check` fails if it is stale. Run at the end of `apply`. Dependency-free. |
-| `tc_render.py` | No flow step calls it. Best-effort render of the threat model's mermaid DFD/architecture blocks to embedded PNGs (via `mmdc`) so it displays in Threat Composer. Fail-open. |
-| `provision-mmdc-browser.sh`, `mmdc-puppeteer.json` | Provision/config for the mermaid renderer used by `tc_render.py`. |
 
 Example:
 

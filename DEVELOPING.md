@@ -23,9 +23,7 @@ Deploying:
 
 ## Local development
 
-**[mise](https://mise.jdx.dev/) manages the full toolchain via `mise.toml`.** A single `mise install` pins and installs Node, Python, uv, the AWS CLI, pre-commit, the openspec CLI, and the Mermaid CLI (`mmdc`). The only per-machine prerequisite is mise itself.
-
-> **Threat-model diagram rendering:** `mise run tm-render` uses `mmdc` (`@mermaid-js/mermaid-cli`) to render threat-model DFDs to PNG for the Threat Composer UI. `mise install` provisions the `mmdc` binary. Its headless browser is a **separate, one-time `mise run mmdc-setup`** (~160MB `chrome-headless-shell`). `mise install` deliberately does not auto-download the browser, so CI and `deploy.sh` never pay for it. This step is **dev-time only**, off the `deploy.sh` path and out of `mise run check`. It degrades gracefully if the browser is absent — diagram slots stay empty and threat models still validate. No step of the OpenSpec flow calls it: the `threat-composer` MCP server renders each threat model's DFD itself. See [`docs/adr/0013-accept-chromium-dependency-for-threat-model-diagram-rendering.md`](docs/adr/0013-accept-chromium-dependency-for-threat-model-diagram-rendering.md).
+**[mise](https://mise.jdx.dev/) manages the full toolchain via `mise.toml`.** A single `mise install` pins and installs Node, Python, uv, the AWS CLI, pre-commit, and the openspec CLI. The only per-machine prerequisite is mise itself.
 
 ### Threat models
 
@@ -60,7 +58,7 @@ curl https://mise.run | sh   # other unix
 # (mise activate runs automatically when entering directories with a mise.toml).
 
 # 2. Provision the entire pinned toolchain (Node 26, Python 3.12, uv, aws,
-#    pre-commit, openspec, mermaid-cli) into mise's per-tool install dirs.
+#    pre-commit, openspec) into mise's per-tool install dirs.
 #    Its postinstall hook also installs the ASD-STE100 skill and the git hooks
 #    from .pre-commit-config.yaml (`mise run postinstall` re-runs both):
 mise install

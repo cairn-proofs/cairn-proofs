@@ -85,8 +85,8 @@ select = ["E", "F", "I", "W", "B", "S", "UP", "RUF"]
 # (tests shell out to dev CLIs — oras, the interpreter — with fixed argv and
 # partial paths). Scoped to test paths ONLY so production code stays covered.
 "tests/**" = ["S101", "S105", "S106", "S603", "S607"]
-# openspec/tools/ are trusted local dev scripts (threat-model gate/render)
-# that shell out to known CLIs (openspec, mmdc) with fixed argv / partial PATH
+# openspec/tools/ are trusted local dev scripts (spec-id and threat-model report
+# checks) that shell out to known CLIs (openspec) with fixed argv / partial PATH
 # lookups — not workspace product source and not untrusted input. Scoped to
 # the tooling path; product code under cli/, lambdas/, libs/ stays covered.
 "openspec/tools/**" = ["S603", "S607"]
