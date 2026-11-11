@@ -58,9 +58,6 @@ lambda-bundles/
 # don't publish these to public repo
 private/
 
-# Legacy location of the private threat-model repo. It now lives beside this repo
-# (../cairn-proofs-threat-models); this keeps a stale nested clone out of commits.
-/threat-models/
 openspec/changes/**/*.tc.json
 
 # Kiro workflow run artifacts (review verdicts, gate logs)
