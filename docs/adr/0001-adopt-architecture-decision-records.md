@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted (2026-05-30). Amended 2026-11-01: the replace-and-delete rule replaces the supersede-in-place rule (see Decision and "Why superseded ADRs are deleted"). This is the one amendment to this ADR's body.
+Accepted (2026-05-30). Amended 2026-11-01: the replace-and-delete rule replaces the supersede-in-place rule. Amended 2026-11-11: the retire-in-place rule replaces the replace-and-delete rule (see Decision and "Why retired ADRs stay as one-line files"). Each amendment is dated here; no other edits are made to this ADR's body.
 
 ## Context
 
@@ -16,7 +16,7 @@ The decisions that suffer most from this gap are cross-cutting decisions, deferr
 
 Adopt numbered Architecture Decision Records under `docs/adr/NNNN-kebab-title.md`.
 
-An ADR in force is **immutable**. To change a decision, write a *new* ADR that restates every decision of the old ADR that still stands, then delete the old ADR. The new ADR records in a "Retired approach" section why the old decision ended. ADR numbers are never reused.
+An ADR in force is **immutable** until it is retired. To retire an ADR, replace its whole body with the title and a "Status" section that holds one sentence: `Retired (date): <why it ended>.` Add `Replaced by ADR-NNNN.` when a successor exists. The file stays, and ADR numbers are never reused. When a decision changes instead of ending, write the new ADR first and restate in it every decision of the old ADR that still stands. Then retire the old ADR. A retired ADR holds no rule: a rule that still stands lives in the successor, a spec, or `AGENTS.md`.
 
 The boundary rule against the opsx change flow is explicit:
 
@@ -32,12 +32,13 @@ ADRs live under `docs/adr/`, not inside the `openspec/` tree, for two reasons.
 
 `docs/` is already the project-wide engineering-reference tree, which matches ADRs' project-wide scope.
 
-## Why superseded ADRs are deleted
+## Why retired ADRs stay as one-line files
 
 - The goal is that no person or agent reads obsolete or misleading content. Reader time and agent tokens are limited.
-- A status marker, an archive directory, or a read restriction leaves the old text reachable. Whole-file loads, search, and the shell still find it. Only deletion removes it.
-- A kept chain makes each reader open old ADRs to learn what still stands. A self-contained successor makes one read enough.
-- The cost is that the old text leaves the working tree and stays only in git history. A reader must look it up in history on purpose. The successor's "Retired approach" section records why the old decision ended.
+- Retiring cuts the body to one sentence, so no obsolete text is left to read. A status marker on a full-length ADR does not do this: whole-file loads, search, and the shell still find the old text.
+- The file stays so that every citation of the ADR still resolves, and a reader who meets "ADR-0013" learns in one line that it ended and why.
+- A self-contained successor makes one read enough. A kept chain would make each reader open old ADRs to learn what still stands.
+- The cost is that the old text leaves the working tree and stays only in git history, and the file name and title still name the retired decision. The Status line directly below the title says it is retired.
 
 ## Consequences
 
