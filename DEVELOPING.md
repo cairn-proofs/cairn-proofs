@@ -38,10 +38,6 @@ repo:
 gh repo clone cairn-proofs/cairn-proofs-threat-models ../cairn-proofs-threat-models
 ```
 
-Commit model changes there with `git -C ../cairn-proofs-threat-models ...`. If you have an older nested `./threat-models`
-clone, move it instead: `mv threat-models ../cairn-proofs-threat-models`. Maintainers create the private repo for a new project
-with `threat-model-toolkit`'s `scripts/setup-threat-model.sh --create`.
-
 During `/openspec-propose`, the `threat-model` skill builds a model for each change at
 `../cairn-proofs-threat-models/<change-name>.tc.json`. The `threat-composer` MCP server is the only writer. Its project
 config (`.mcp.json` for Claude Code, `.kiro/settings/mcp.json` for Kiro) sets `THREAT_COMPOSER_AI_MODEL_DIR` to that
