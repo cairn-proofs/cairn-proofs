@@ -132,16 +132,17 @@ description = "Gitleaks secret detection (full git history) — offline, embedde
 run = "gitleaks git --no-banner --redact"
 
 [tasks.tm-gate]
-description = "Fail-closed threat-model gate for a change (usage: mise run tm-gate <change>)"
-run = "uv run python openspec/tools/tc.py gate"
+description = "Fail-closed threat-model gate for a change (usage: mise run tm-gate <change>; needs the private ../cairn-proofs-threat-models checkout)"
+run = "python3 ../cairn-proofs-threat-models/tools/tc.py gate"
 
 [tasks.tm-reconcile]
 description = "Print the threat-model status changes that a change's checked tasks justify (usage: mise run tm-reconcile <change>)"
-run = "uv run python openspec/tools/tc.py reconcile"
+run = "python3 ../cairn-proofs-threat-models/tools/tc.py reconcile"
 
 [tasks.tm-report]
 description = "Write a change's sanitized threat-model report (usage: mise run tm-report <change> [-- --check])"
-run = "uv run python openspec/tools/tc.py report"
+run = "python3 ../cairn-proofs-threat-models/tools/tc.py report"
+
 [tasks.cdk-deploy]
 description = "Re/deploy the CDK app"
 run = "./cdk/scripts/deploy.sh"

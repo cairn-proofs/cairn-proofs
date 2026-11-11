@@ -51,7 +51,7 @@ Read-only inspection is fair game in any session without a slash command: `opens
 
 OpenSpec's stock flow is `proposal → specs → design → tasks`. We extend it:
 
-- **`cairn`** (the active schema, set in `config.yaml`) inserts a **threat-model checkpoint** between specs/design and tasks: `proposal → specs → design → threat-model-report.md → tasks`. The `threat-model` skill builds the threat model during `/openspec-propose`, so STRIDE findings shape requirements and task ordering *before* implementation. The model itself is private: the `threat-composer` MCP server writes it to `threat-models/<change>.tc.json`, a separate private repository. The change directory gets only `threat-model-report.md`, a sanitized summary (counts, gate result, model hash), and `tasks.md` uses neutral language with no threat ids. `apply` then implements the ordered `tasks.md` checklist and then runs the single simplify/review/test gate on the cumulative diff. See `schemas/cairn/schema.yaml` for the full per-artifact instructions.
+- **`cairn`** (the active schema, set in `config.yaml`) inserts a **threat-model checkpoint** between specs/design and tasks: `proposal → specs → design → threat-model-report.md → tasks`. The `threat-model` skill builds the threat model during `/openspec-propose`, so STRIDE findings shape requirements and task ordering *before* implementation. The model itself is private: the `threat-composer` MCP server writes it to `../cairn-proofs-threat-models/<change>.tc.json`, a separate private repository checked out beside this one (optional for contributors without access: the flow then skips the threat-model step). The change directory gets only `threat-model-report.md`, a sanitized summary (counts, gate result, model hash), and `tasks.md` uses neutral language with no threat ids. `apply` then implements the ordered `tasks.md` checklist and then runs the single simplify/review/test gate on the cumulative diff. See `schemas/cairn/schema.yaml` for the full per-artifact instructions.
 - **`bugfix`** is a leaner schema for defects: `bugfix-analysis → design → tasks`, where `bugfix.md` states Current/Expected/Unchanged behavior with `**WHEN**/**THEN**/**SHALL**` keywords that seed RED→GREEN→regression tests. Used via `/openspec-bugfix`.
 
 ## Harness compatibility (Claude Code + Kiro)
@@ -80,14 +80,15 @@ Why this needs no branches: every harness loads the same `AGENTS.md` and receive
 
 | Script | Purpose |
 |--------|---------|
-| `tc.py` | Reads the private model and never writes it. `reconcile` prints the mitigation and threat status changes that the checked tasks justify, from `task:<N.M>` tags on the mitigations; the session applies them with the MCP tool `tm_set_status`. `gate` is fail-closed: nonzero if a threat has no valid `Priority`, a High threat has no mitigation, or an open threat depends on an unresolved mitigation. `report` writes the sanitized `threat-model-report.md`; `report --check` fails if it is stale. Run at the end of `apply`. Dependency-free. |
+| `tc.py` (private repo: `../cairn-proofs-threat-models/tools/`) | Reads the private model and never writes it. `reconcile` prints the mitigation and threat status changes that the checked tasks justify, from `task:<N.M>` tags on the mitigations; the session applies them with the MCP tool `tm_set_status`. `gate` is fail-closed: nonzero if a threat has no valid `Priority`, a High threat has no mitigation, or an open threat depends on an unresolved mitigation. `report` writes the sanitized `threat-model-report.md`; `report --check` fails if it is stale. Run at the end of `apply`. Dependency-free. |
+| `report_shape.py` | Public leak guard. Checks that a committed `threat-model-report.md` holds only counts, the gate result and the model hash (or a `SKIPPED` report). Needs no access to the private repo. Dependency-free. |
 
 Example:
 
 ```bash
-python3 openspec/tools/tc.py reconcile <change>
-python3 openspec/tools/tc.py gate <change>
-python3 openspec/tools/tc.py report <change> [--check]
+python3 ../cairn-proofs-threat-models/tools/tc.py reconcile <change>
+python3 ../cairn-proofs-threat-models/tools/tc.py gate <change>
+python3 ../cairn-proofs-threat-models/tools/tc.py report <change> [--check]
 ```
 
 ## Conventions (quick reference)

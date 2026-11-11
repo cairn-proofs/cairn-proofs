@@ -58,8 +58,8 @@ lambda-bundles/
 # don't publish these to public repo
 private/
 
-# Private, org-wide system threat model (branch-per-repo in
-# cp-threat-models-private). See DEVELOPING.md.
+# Legacy location of the private threat-model repo. It now lives beside this repo
+# (../cairn-proofs-threat-models); this keeps a stale nested clone out of commits.
 /threat-models/
 openspec/changes/**/*.tc.json
 
