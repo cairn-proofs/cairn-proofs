@@ -23,27 +23,35 @@ Deploying:
 
 ## Local development
 
-**[mise](https://mise.jdx.dev/) manages the full toolchain via `mise.toml`.** A single `mise install` pins and installs Node, Python, uv, the AWS CLI, pre-commit, the openspec CLI, and the Mermaid CLI (`mmdc`). The only per-machine prerequisite is mise itself.
-
-> **Threat-model diagram rendering:** `mise run tm-render` uses `mmdc` (`@mermaid-js/mermaid-cli`) to render threat-model DFDs to PNG for the Threat Composer UI. `mise install` provisions the `mmdc` binary. Its headless browser is a **separate, one-time `mise run mmdc-setup`** (~160MB `chrome-headless-shell`). `mise install` deliberately does not auto-download the browser, so CI and `deploy.sh` never pay for it. This step is **dev-time only**, off the `deploy.sh` path and out of `mise run check`. It degrades gracefully if the browser is absent — diagram slots stay empty and threat models still validate. No step of the OpenSpec flow calls it: the `threat-composer` MCP server renders each threat model's DFD itself. See [`docs/adr/0013-accept-chromium-dependency-for-threat-model-diagram-rendering.md`](docs/adr/0013-accept-chromium-dependency-for-threat-model-diagram-rendering.md).
+**[mise](https://mise.jdx.dev/) manages the full toolchain via `mise.toml`.** A single `mise install` pins and installs Node, Python, uv, the AWS CLI, pre-commit, and the openspec CLI. The only per-machine prerequisite is mise itself.
 
 ### Threat models
 
-Threat models are private. They live in a private store, not in this repo. The store holds one branch per
-`cairn-proofs` public repo, named after the repo, with the model files at the branch root. Set up a working copy once:
+Threat models are private, and **access to them is optional**. They live in this repo's own private repository,
+`cairn-proofs-threat-models`, not in this repo. You do not need it to build, test or contribute. It matters only for the
+threat-model step of the OpenSpec flow (below).
+
+If you have access, clone it **beside** this repo, not inside it, so it can never be committed or packaged with this
+repo:
 
 ```bash
-THREAT_MODEL_STORE_URL=<url> scripts/setup-threat-model.sh
+gh repo clone cairn-proofs/cairn-proofs-threat-models ../cairn-proofs-threat-models
 ```
 
-See internal onboarding for `THREAT_MODEL_STORE_URL`. This clones the store into `./threat-models` (gitignored), which
-is a separate git repository. Commit model changes there with `git -C threat-models ...`, never with this repo's git.
+Commit model changes there with `git -C ../cairn-proofs-threat-models ...`. If you have an older nested `./threat-models`
+clone, move it instead: `mv threat-models ../cairn-proofs-threat-models`. Maintainers create the private repo for a new project
+with `threat-model-toolkit`'s `scripts/setup-threat-model.sh --create`.
 
 During `/openspec-propose`, the `threat-model` skill builds a model for each change at
-`threat-models/<change-name>.tc.json`. The `threat-composer` MCP server is the only writer. Its project config
-(`.mcp.json` for Claude Code, `.kiro/settings/mcp.json` for Kiro) sets `THREAT_COMPOSER_AI_MODEL_DIR=threat-models`.
-The change itself carries only `threat-model-report.md`, a sanitized summary that `openspec/tools/tc.py report`
-writes. Open a `.tc.json` with the Threat Composer VS Code extension or web app.
+`../cairn-proofs-threat-models/<change-name>.tc.json`. The `threat-composer` MCP server is the only writer. Its project
+config (`.mcp.json` for Claude Code, `.kiro/settings/mcp.json` for Kiro) sets `THREAT_COMPOSER_AI_MODEL_DIR` to that
+directory. `mise run tm-gate`, `tm-reconcile` and `tm-report` run `tools/tc.py` from the private repo. The change
+itself carries only `threat-model-report.md`, a sanitized summary that `tc.py report` writes.
+`openspec/tools/report_shape.py` checks in public CI that a committed report holds nothing else. Open a `.tc.json` with
+the Threat Composer VS Code extension or web app.
+
+**Without access:** the flow skips the threat-model step and writes a report with `Gate | SKIPPED`. A maintainer runs the
+step before merge, and a `SKIPPED` report must not be archived (a test enforces this).
 
 ### Supported platforms
 
@@ -60,7 +68,7 @@ curl https://mise.run | sh   # other unix
 # (mise activate runs automatically when entering directories with a mise.toml).
 
 # 2. Provision the entire pinned toolchain (Node 26, Python 3.12, uv, aws,
-#    pre-commit, openspec, mermaid-cli) into mise's per-tool install dirs.
+#    pre-commit, openspec) into mise's per-tool install dirs.
 #    Its postinstall hook also installs the ASD-STE100 skill and the git hooks
 #    from .pre-commit-config.yaml (`mise run postinstall` re-runs both):
 mise install

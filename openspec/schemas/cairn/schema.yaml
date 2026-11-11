@@ -201,8 +201,18 @@ artifacts:
       Run the `threat-model` skill on this change. Its target is the change
       itself: `proposal.md`, `design.md`, and every spec delta under `specs/`.
       Use the model path `<change-name>.tc.json`. The `threat-composer` MCP
-      server writes the model to `threat-models/`, which is a separate, private
-      repository. Only the MCP tools write the model.
+      server writes the model to `../cairn-proofs-threat-models/`, a separate,
+      private repository checked out beside this one. Only the MCP tools write
+      the model.
+
+      **No access:** if the directory `../cairn-proofs-threat-models` does not
+      exist, the contributor has no access to the private repository. Do not
+      run the skill and do not call any `tm_*` tool. Write
+      `threat-model-report.md` from the template with `Model` and
+      `Model SHA-256` set to `none`, `Gate` set to `SKIPPED`, and every count
+      set to 0. Tell the user in your summary that a maintainer must run this
+      step, and `tc.py report`, before the change is merged. Then stop this
+      artifact. Everything below applies only when the directory exists.
 
       In the skill's Step 0, give the subagents this scope context with the
       rest:
@@ -228,7 +238,7 @@ artifacts:
           get `task:` tags in the tasks step.
         - Follow-up: a later change builds it. Ask the user before you create
           the issue. Create it in the private repository with
-          `gh issue create --repo cairn-proofs/cp-threat-models-private`, and
+          `gh issue create --repo cairn-proofs/cairn-proofs-threat-models`, and
           describe the mitigation and its threats there. Then call
           `tm_add_tags` to add `deferred:tm-private#<n>` to the
           mitigation. Never put this content in a public issue.
@@ -238,7 +248,7 @@ artifacts:
         If the user cannot answer, put every mitigation in "this change" and
         list that choice in your summary.
       - Loop-back: run
-        `python3 openspec/tools/tc.py gate <change-name> --stage propose`. It
+        `python3 ../cairn-proofs-threat-models/tools/tc.py gate <change-name> --stage propose`. It
         fails if a High priority threat has no mitigation, a threat has no
         valid priority, or a `deferred:` tag is malformed. If a High priority
         threat has no mitigation, amend the spec deltas and `design.md` so that
@@ -247,7 +257,7 @@ artifacts:
       - Medium and Low priority findings carry forward as context for the tasks
         artifact.
       - Last, run
-        `python3 openspec/tools/tc.py report <change-name> --stage propose`.
+        `python3 ../cairn-proofs-threat-models/tools/tc.py report <change-name> --stage propose`.
         It writes `threat-model-report.md`, which holds only counts, the gate
         result, and the model hash. Do not edit the report.
   - id: tasks
@@ -270,7 +280,8 @@ artifacts:
       - Ship each task's tests in the same task as the code they cover.
       - Name the files each task creates or changes when you know them. A harness that runs tasks in parallel uses these names to keep concurrent tasks on different files.
       - Write every task in neutral language. Name the control or the code change, not the threat it addresses. Do not cite threat or mitigation ids. `tasks.md` is public; the threat model is private.
-      - After you write `tasks.md`, link the private model to it. Call `tm_get`. If a mitigation already has a `task:` tag, a subagent added it as a placeholder; remove it with `tm_remove_tags`. Then call `tm_add_tags` with `kind: "mitigation"` for each mitigation that the triage put in "this change". Add one `task:<N.M>` tag for each task that builds it. Do not use `tm_update_mitigation` for this; it replaces the whole mitigation. A deferred or risk-accepted mitigation gets no `task:` tag. Then run `python3 openspec/tools/tc.py report <change-name> --stage propose` again, because the model changed.
+      - If the threat-model report says `SKIPPED`, write the tasks without any `task:` link: skip this whole bullet and every `tm_*` call.
+      - After you write `tasks.md`, link the private model to it. Call `tm_get`. If a mitigation already has a `task:` tag, a subagent added it as a placeholder; remove it with `tm_remove_tags`. Then call `tm_add_tags` with `kind: "mitigation"` for each mitigation that the triage put in "this change". Add one `task:<N.M>` tag for each task that builds it. Do not use `tm_update_mitigation` for this; it replaces the whole mitigation. A deferred or risk-accepted mitigation gets no `task:` tag. Then run `python3 ../cairn-proofs-threat-models/tools/tc.py report <change-name> --stage propose` again, because the model changed.
       - There is no review or simplify pass during implementation. `code-simplifier`, `code-reviewer`, `security-reviewer`, and `tester` run once, after every task is complete, on the cumulative diff (see the apply instruction).
 
       Reference specs for what needs to be built, design for how to build it.
@@ -301,7 +312,7 @@ apply:
     To fix findings, give them to an implementer as input, then run the gate again until it is clean.
 
     Then, BEFORE committing, and ONLY when every task is complete and
-    `threat-models/<change-name>.tc.json` exists, reconcile and gate the
+    `../cairn-proofs-threat-models/<change-name>.tc.json` exists, reconcile and gate the
     threat model. A paused or partial apply must NOT reconcile.
     a. Check each mitigation that has a `task:` tag against the change's
        diff. A checked task does not prove that the code does what the
@@ -317,7 +328,7 @@ apply:
          mitigation to a follow-up or accepts the risk, as in the threat-model
          triage. When it moves, call `tm_remove_tags` to remove its `task:`
          tags.
-    b. Run `python3 openspec/tools/tc.py reconcile <change-name>`. It reads the
+    b. Run `python3 ../cairn-proofs-threat-models/tools/tc.py reconcile <change-name>`. It reads the
        checked tasks in `tasks.md` and the `task:` tags on the mitigations. It
        writes nothing. It prints the mitigation ids to set to
        `mitigationResolved` and the threat ids to set to `threatResolved`.
@@ -326,14 +337,14 @@ apply:
        `tm_add_tags`, and run it again.
     c. Apply the printed changes with the MCP tool `tm_set_status`, then run
        `tm_validate`.
-    d. Run `python3 openspec/tools/tc.py gate <change-name>`. A non-zero exit
+    d. Run `python3 ../cairn-proofs-threat-models/tools/tc.py gate <change-name>`. A non-zero exit
        means the change is NOT done: a High priority threat has no
        mitigation, a threat depends on a mitigation that is neither resolved
        nor deferred, a threat has no valid priority, or a `deferred:` tag is
        malformed. Surface it (see below). Do NOT mark the change
        complete or commit until it is resolved.
-    e. Run `python3 openspec/tools/tc.py report <change-name>`, then
-       `python3 openspec/tools/tc.py report <change-name> --check`.
+    e. Run `python3 ../cairn-proofs-threat-models/tools/tc.py report <change-name>`, then
+       `python3 ../cairn-proofs-threat-models/tools/tc.py report <change-name> --check`.
     Once the gate passes, the change is ready to commit when the user asks.
 
     Pause and surface to the user if you hit blockers, ambiguity, or a

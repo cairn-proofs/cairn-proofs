@@ -22,7 +22,7 @@
         "threat-composer-ai-mcp"
       ],
       "env": {
-        "THREAT_COMPOSER_AI_MODEL_DIR": "threat-models",
+        "THREAT_COMPOSER_AI_MODEL_DIR": "../cairn-proofs-threat-models",
         "THREAT_COMPOSER_AI_MCP_TOOLS": "builder"
       }
     }

@@ -4,9 +4,9 @@
 
 | Field | Value |
 |---|---|
-| Model | `<change-name>.tc.json` |
-| Model SHA-256 | `<sha-256 of the model file>` |
-| Gate | PASSED or FAILED, followed by ` (propose)` at the propose stage |
+| Model | `<change-name>.tc.json`, or `none` when skipped |
+| Model SHA-256 | `<sha-256 of the model file>`, or `none` when skipped |
+| Gate | PASSED or FAILED, followed by ` (propose)` at the propose stage, or SKIPPED when the contributor has no access to the model |
 | Threats | <count> |
 | Mitigations | <count> |
 | Assumptions | <count> |

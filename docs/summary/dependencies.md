@@ -17,7 +17,6 @@ graph TB
         ORAS["oras"]
         NOT["(Notation via layer build)"]
         OSPEC["openspec"]
-        MMDC["mermaid-cli"]
         GH["github-cli"]
         SG["semgrep"]
         GL["gitleaks"]
@@ -78,7 +77,6 @@ bump changes which OSCAL documents the validate path accepts.
 | `semgrep` | SAST over Python + TypeScript, offline against vendored rules (`tools/semgrep/rules/`) |
 | `gitleaks` | Secret detection — staged diff at commit, full history in `check` |
 | `pre-commit` | Git-hook formatting/linting/validation |
-| `mermaid-cli` | Renders threat-model diagrams (dev-time, propose flow only; off the deploy path) |
 | `github-cli` | Backlog → GitHub issue sync tooling |
 
 ## AWS service dependencies (deployed system)
